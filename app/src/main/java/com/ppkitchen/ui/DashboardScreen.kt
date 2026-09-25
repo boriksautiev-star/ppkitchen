@@ -8,11 +8,15 @@ import android.os.Process
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Analytics
+import androidx.compose.material.icons.filled.Calculate
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Refresh
@@ -22,10 +26,15 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.ppkitchen.data.AppDatabase
 import com.ppkitchen.data.BackupPreferences
+import com.ppkitchen.data.Order
+import com.ppkitchen.data.SettingsPreferences
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -60,6 +69,9 @@ fun DashboardScreen() {
     var showFinanceDialog by remember { mutableStateOf(false) }
     var showSettingsDialog by remember { mutableStateOf(false) }
 
+    // Режим графика: "income" | "accrual" | "both"
+    var chartMode by remember { mutableStateOf(SettingsPreferences.getChartMode(ctx)) }
+
     val filePicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri: Uri? -> if (uri != null) showRestoreConfirm = uri }
@@ -84,10 +96,7 @@ fun DashboardScreen() {
         val effEnd = if (o.deliveryEnd < endDate) o.deliveryEnd else endDate
         val effEndWithToday = if (effEnd > todayStr) todayStr else effEnd
         if (effStart > effEndWithToday) 0
-        else {
-            val fakeOrder = o.copy(deliveryStart = o.deliveryStart, deliveryEnd = o.deliveryEnd)
-            sumForRange(fakeOrder, effStart, effEndWithToday)
-        }
+        else sumForRange(o, effStart, effEndWithToday)
     }
 
     val r = (revenue ?: 0) + dailyRevenue
@@ -97,17 +106,23 @@ fun DashboardScreen() {
     val margin = if (r > 0) (profit * 100 / r) else 0
     val totalRations = caloriesList.sumOf { it.count }
 
+    // Данные графиков
+    val incomeChartData = remember(allOrders, startDate, endDate, todayStr) {
+        computeDailyIncome(allOrders, startDate, endDate, todayStr)
+    }
+    val accrualChartData = remember(allOrders, startDate, endDate, todayStr) {
+        computeDailyAccrual(allOrders, startDate, endDate, todayStr)
+    }
+
     Scaffold(
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
             CompactTopBar(
                 title = "Отчёт",
                 actions = {
-                    // Одна кнопка «Финансы»
                     IconButton(onClick = { showFinanceDialog = true }) {
-                        Icon(Icons.Default.Analytics, "Финансы")
+                        Icon(Icons.Default.Calculate, "Финансы")
                     }
-
                     var menuExpanded by remember { mutableStateOf(false) }
                     IconButton(onClick = { menuExpanded = true }) {
                         Icon(Icons.Default.MoreVert, "Меню")
@@ -124,7 +139,7 @@ fun DashboardScreen() {
                                 showSettingsDialog = true
                             }
                         )
-                        Divider()
+                        HorizontalDivider()
                         DropdownMenuItem(
                             text = { Text("Отправить отчёт в Excel") },
                             onClick = {
@@ -246,7 +261,7 @@ fun DashboardScreen() {
                 }
             }
 
-            StatCard("Выручка", "$r ₽")
+            StatCard("Выручка (от клиентов)", "$r ₽")
             StatCard("Расходы", "$e ₽")
             StatCard("Прибыль", "$profit ₽")
             StatCard("Маржинальность", "$margin %")
@@ -257,7 +272,7 @@ fun DashboardScreen() {
                     Text("Продано рационов", style = MaterialTheme.typography.bodyMedium)
                     Text("$totalRations", style = MaterialTheme.typography.headlineMedium)
                     Spacer(Modifier.height(12.dp))
-                    Divider()
+                    HorizontalDivider()
                     Spacer(Modifier.height(8.dp))
                     if (caloriesList.isEmpty()) {
                         Text("Пока нет данных за выбранный период", style = MaterialTheme.typography.bodySmall)
@@ -275,7 +290,80 @@ fun DashboardScreen() {
                 }
             }
 
-            StatCard("Внесено вами", "$d ₽")
+            // === Переключатель режима графика ===
+            Card(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Режим графика", style = MaterialTheme.typography.titleSmall)
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        FilterChip(
+                            selected = chartMode == "income",
+                            onClick = {
+                                chartMode = "income"
+                                SettingsPreferences.setChartMode(ctx, "income")
+                            },
+                            label = { Text("Поступления", style = MaterialTheme.typography.bodySmall) },
+                            modifier = Modifier.weight(1f)
+                        )
+                        FilterChip(
+                            selected = chartMode == "accrual",
+                            onClick = {
+                                chartMode = "accrual"
+                                SettingsPreferences.setChartMode(ctx, "accrual")
+                            },
+                            label = { Text("По дням питания", style = MaterialTheme.typography.bodySmall) },
+                            modifier = Modifier.weight(1f)
+                        )
+                        FilterChip(
+                            selected = chartMode == "both",
+                            onClick = {
+                                chartMode = "both"
+                                SettingsPreferences.setChartMode(ctx, "both")
+                            },
+                            label = { Text("Оба", style = MaterialTheme.typography.bodySmall) },
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+
+                    // Подсказка
+                    Text(
+                        when (chartMode) {
+                            "income" -> "💵 Показаны деньги, которые фактически пришли в каждый день. Если несколько заказов внесены в один день — будет пик."
+                            "accrual" -> "📅 Показано, сколько вы зарабатываете в день фактического питания клиентов. Ровный график без пиков."
+                            else -> "Показаны оба графика: поступления и распределённая выручка."
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            // === Графики ===
+            if (chartMode == "income" || chartMode == "both") {
+                if (incomeChartData.isNotEmpty()) {
+                    RevenueChartCard(
+                        dailyData = incomeChartData,
+                        title = "Поступления по дням",
+                        subtitle = "Когда фактически пришли деньги от клиентов",
+                        accentColor = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
+
+            if (chartMode == "accrual" || chartMode == "both") {
+                if (accrualChartData.isNotEmpty()) {
+                    RevenueChartCard(
+                        dailyData = accrualChartData,
+                        title = "Выручка по дням питания",
+                        subtitle = "Распределённая сумма — сколько зарабатываете в день",
+                        accentColor = MaterialTheme.colorScheme.tertiary
+                    )
+                }
+            }
+
+            StatCard("Внесено вами (касса)", "$d ₽")
             StatCard("Активных клиентов (всего)", "$activeCount")
         }
     }
@@ -337,6 +425,310 @@ fun DashboardScreen() {
     }
 }
 
+/**
+ * Кассовый метод — выручка учитывается в день поступления денег.
+ * Разовые оплаты: вся сумма в день оформления (date).
+ * Ежедневные/бессрочные: по дням доставки.
+ */
+private fun computeDailyIncome(
+    orders: List<Order>,
+    startDate: String,
+    endDate: String,
+    today: String
+): List<Pair<String, Int>> {
+    val result = mutableListOf<Pair<String, Int>>()
+    val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
+
+    val startCal = Calendar.getInstance().apply {
+        time = sdf.parse(startDate) ?: Date()
+    }
+    val endCal = Calendar.getInstance().apply {
+        time = sdf.parse(endDate) ?: Date()
+    }
+
+    val cal = startCal.clone() as Calendar
+    var iterations = 0
+    while (!cal.after(endCal) && iterations < 400) {
+        val dayStr = sdf.format(cal.time)
+        var dayTotal = 0
+
+        orders.forEach { o ->
+            if (o.paid && !o.dailyPayment && !o.isOpenEnded && o.date == dayStr) {
+                dayTotal += o.amount
+            }
+        }
+
+        if (dayStr <= today) {
+            orders.forEach { o ->
+                if (o.dailyPayment || o.isOpenEnded) {
+                    dayTotal += sumForRange(o, dayStr, dayStr)
+                }
+            }
+        }
+
+        result.add(dayStr to dayTotal)
+        cal.add(Calendar.DAY_OF_MONTH, 1)
+        iterations++
+    }
+    return result
+}
+
+/**
+ * Метод начисления — выручка распределяется по дням фактического питания.
+ * Каждый оплаченный заказ "размазывается" по дням доставки равными долями.
+ * Пиков от нескольких оформленных заказов в один день не будет.
+ */
+private fun computeDailyAccrual(
+    orders: List<Order>,
+    startDate: String,
+    endDate: String,
+    today: String
+): List<Pair<String, Int>> {
+    val result = mutableListOf<Pair<String, Int>>()
+    val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
+
+    val startCal = Calendar.getInstance().apply {
+        time = sdf.parse(startDate) ?: Date()
+    }
+    val endCal = Calendar.getInstance().apply {
+        time = sdf.parse(endDate) ?: Date()
+    }
+
+    val cal = startCal.clone() as Calendar
+    var iterations = 0
+    while (!cal.after(endCal) && iterations < 400) {
+        val dayStr = sdf.format(cal.time)
+        var dayTotal = 0
+
+        if (dayStr <= today) {
+            // ВСЕ заказы (и оплаченные, и ежедневные, и бессрочные)
+            // распределяем по дням доставки.
+            orders.forEach { o ->
+                if (o.paid || o.dailyPayment || o.isOpenEnded) {
+                    dayTotal += sumForRange(o, dayStr, dayStr)
+                }
+            }
+        }
+
+        result.add(dayStr to dayTotal)
+        cal.add(Calendar.DAY_OF_MONTH, 1)
+        iterations++
+    }
+    return result
+}
+
+@Composable
+fun RevenueChartCard(
+    dailyData: List<Pair<String, Int>>,
+    title: String,
+    subtitle: String,
+    accentColor: androidx.compose.ui.graphics.Color
+) {
+    var selectedDay by remember { mutableStateOf<String?>(null) }
+    val scrollState = rememberScrollState()
+    val scope = rememberCoroutineScope()
+
+    val maxValue = remember(dailyData) {
+        dailyData.maxOfOrNull { it.second }?.coerceAtLeast(1) ?: 1
+    }
+
+    val totalPeriod = remember(dailyData) {
+        dailyData.sumOf { it.second }
+    }
+
+    LaunchedEffect(dailyData.size) {
+        if (dailyData.isNotEmpty()) {
+            delay(100)
+            scrollState.scrollTo(scrollState.maxValue)
+        }
+    }
+
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp)) {
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        title,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        subtitle,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        "Всего за период: $totalPeriod ₽",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Text(
+                    "макс: $maxValue ₽",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            Spacer(Modifier.height(8.dp))
+
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                TextButton(onClick = {
+                    scope.launch { scrollState.animateScrollTo(0) }
+                }) {
+                    Text("← В начало", style = MaterialTheme.typography.labelMedium)
+                }
+                TextButton(onClick = {
+                    scope.launch { scrollState.animateScrollTo(scrollState.maxValue) }
+                }) {
+                    Text("В конец →", style = MaterialTheme.typography.labelMedium)
+                }
+            }
+
+            Spacer(Modifier.height(8.dp))
+
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .height(200.dp)
+                    .horizontalScroll(scrollState),
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                dailyData.forEach { (day, value) ->
+                    val ratio = if (maxValue > 0)
+                        value.toFloat() / maxValue.toFloat()
+                    else 0f
+                    val isSelected = selectedDay == day
+
+                    val dayLabel = if (day.length >= 10)
+                        "${day.substring(8, 10)}.${day.substring(5, 7)}"
+                    else day
+
+                    Column(
+                        Modifier
+                            .width(52.dp)
+                            .fillMaxHeight()
+                            .clickable {
+                                selectedDay = if (isSelected) null else day
+                            },
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        if (isSelected) {
+                            Text(
+                                "$value",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = accentColor,
+                                maxLines = 1
+                            )
+                        } else {
+                            Spacer(Modifier.height(14.dp))
+                        }
+
+                        Box(
+                            Modifier
+                                .fillMaxWidth()
+                                .weight(1f),
+                            contentAlignment = Alignment.BottomCenter
+                        ) {
+                            Box(
+                                Modifier
+                                    .fillMaxWidth(0.7f)
+                                    .fillMaxHeight(ratio.coerceIn(0.02f, 1f))
+                                    .background(
+                                        color = if (isSelected)
+                                            accentColor
+                                        else
+                                            accentColor.copy(alpha = 0.55f),
+                                        shape = RoundedCornerShape(
+                                            topStart = 4.dp,
+                                            topEnd = 4.dp
+                                        )
+                                    )
+                            )
+                        }
+
+                        Spacer(Modifier.height(4.dp))
+
+                        Text(
+                            dayLabel,
+                            style = MaterialTheme.typography.labelSmall,
+                            fontSize = 11.sp,
+                            color = if (isSelected)
+                                accentColor
+                            else
+                                MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                            maxLines = 1
+                        )
+                    }
+                }
+            }
+
+            if (selectedDay != null) {
+                val day = selectedDay!!
+                val value = dailyData.find { it.first == day }?.second ?: 0
+                Spacer(Modifier.height(12.dp))
+                Surface(
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                    shape = MaterialTheme.shapes.small,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text(
+                                "Выбранный день",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Text(
+                                day,
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                        Text(
+                            "$value ₽",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = accentColor
+                        )
+                    }
+                }
+
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "Нажмите на столбик ещё раз, чтобы скрыть",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            } else {
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "Прокручивайте влево-вправо. Нажмите на столбик, чтобы увидеть точную сумму.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun BackupSettingsDialog(onDismiss: () -> Unit) {
@@ -386,7 +778,7 @@ fun BackupSettingsDialog(onDismiss: () -> Unit) {
                     Text("Включено")
                     Switch(checked = enabled, onCheckedChange = { enabled = it })
                 }
-                Divider()
+                HorizontalDivider()
                 Text("Периодичность (дней):", style = MaterialTheme.typography.bodyMedium)
                 Row(
                     Modifier.fillMaxWidth(),
@@ -413,7 +805,7 @@ fun BackupSettingsDialog(onDismiss: () -> Unit) {
                         )
                     }
                 }
-                Divider()
+                HorizontalDivider()
                 Text("Папка для сохранения:", style = MaterialTheme.typography.bodyMedium)
                 Text(
                     if (folderUri == null) "По умолчанию (Android/data/com.ppkitchen/files/Documents/backups/)"

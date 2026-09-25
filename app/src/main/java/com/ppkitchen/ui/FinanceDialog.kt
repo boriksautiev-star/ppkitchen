@@ -674,3 +674,12 @@ fun ExpenseRow(label: String, amount: Int, total: Int) {
         }
     }
 }
+@Composable
+fun CostDialog(onDismiss: () -> Unit) {
+    FinanceDialog(onDismiss)
+}
+
+@Composable
+fun BreakEvenDialog(onDismiss: () -> Unit) {
+    FinanceDialog(onDismiss)
+}

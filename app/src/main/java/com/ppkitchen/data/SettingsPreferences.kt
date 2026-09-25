@@ -18,6 +18,12 @@ object SettingsPreferences {
     // Тема
     private const val KEY_THEME_MODE = "theme_mode"  // "system" | "light" | "dark"
 
+    // Режим графика выручки
+    // "income" — поступления (кассовый метод)
+    // "accrual" — по дням питания (метод начисления)
+    // "both" — оба графика
+    private const val KEY_CHART_MODE = "chart_mode"
+
     fun getCourierRate(context: Context): Int =
         prefs(context).getInt(KEY_COURIER_RATE, 200)
 
@@ -74,6 +80,14 @@ object SettingsPreferences {
 
     fun setThemeMode(context: Context, mode: String) =
         prefs(context).edit().putString(KEY_THEME_MODE, mode).apply()
+
+    // === Режим графика выручки ===
+    /** "income" | "accrual" | "both" */
+    fun getChartMode(context: Context): String =
+        prefs(context).getString(KEY_CHART_MODE, "income") ?: "income"
+
+    fun setChartMode(context: Context, mode: String) =
+        prefs(context).edit().putString(KEY_CHART_MODE, mode).apply()
 
     private fun prefs(context: Context) =
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
