@@ -34,12 +34,20 @@ object ChefMessageBuilder {
     }
 
     fun build(date: String, orders: List<Order>, clients: List<Client>): String {
+        // Сортировка: сначала по калориям, затем по имени
+        val sortedOrders = orders.sortedWith(
+            compareBy(
+                { it.calories },
+                { clients.find { c -> c.id == it.clientId }?.fullName?.lowercase() ?: "" }
+            )
+        )
+
         val sb = StringBuilder()
         sb.append("Заказы для повара на $date\n")
-        sb.append("Всего рационов: ${orders.size}\n")
+        sb.append("Всего рационов: ${sortedOrders.size}\n")
         sb.append("─────────────────\n\n")
 
-        orders.forEachIndexed { index, o ->
+        sortedOrders.forEachIndexed { index, o ->
             val client = clients.find { it.id == o.clientId }
             val name = client?.fullName ?: "Клиент удалён"
             sb.append("${index + 1}. $name — ${o.calories} ккал\n")
@@ -51,14 +59,14 @@ object ChefMessageBuilder {
         sb.append("\n─────────────────\n")
         sb.append("ИТОГО ПО ТАРИФАМ:\n")
 
-        val grouped = orders.groupBy { it.calories }.toList().sortedBy { it.first }
+        val grouped = sortedOrders.groupBy { it.calories }.toList().sortedBy { it.first }
         grouped.forEach { (kcal, list) ->
             sb.append("• $kcal ккал — ${list.size} шт.\n")
         }
 
-        val totalCalories = orders.sumOf { it.calories }
+        val totalCalories = sortedOrders.sumOf { it.calories }
         sb.append("\nВсего калорий за день: $totalCalories\n")
-        sb.append("Всего рационов: ${orders.size}")
+        sb.append("Всего рационов: ${sortedOrders.size}")
 
         return sb.toString()
     }

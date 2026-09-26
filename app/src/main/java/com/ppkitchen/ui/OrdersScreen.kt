@@ -317,11 +317,17 @@ fun OrdersScreen(onOpenCouriers: () -> Unit) {
         db.assignmentDao().getForDate(selectedDate)
     }.collectAsState(initial = emptyList())
 
+    // Сортировка: сначала по калориям, затем по имени клиента
     val orders = allOrders.filter { o ->
         o.deliveryStart <= selectedDate &&
                 o.deliveryEnd >= selectedDate &&
                 isDeliveryDay(o, selectedDate)
-    }
+    }.sortedWith(
+        compareBy(
+            { it.calories },
+            { clients.find { c -> c.id == it.clientId }?.fullName?.lowercase() ?: "" }
+        )
+    )
 
     fun courierIdFor(orderId: Long): Long =
         assignments.find { it.orderId == orderId }?.courierId ?: 0L
@@ -369,6 +375,17 @@ fun OrdersScreen(onOpenCouriers: () -> Unit) {
                                         Toast.makeText(ctx, "Список пуст", Toast.LENGTH_SHORT).show()
                                     } else {
                                         shareOrders(ctx, selectedDate, orders, clients, ShareMode.CHEF)
+                                    }
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Печать этикеток (Excel)") },
+                                onClick = {
+                                    shareMenuExpanded = false
+                                    if (orders.isEmpty()) {
+                                        Toast.makeText(ctx, "На эту дату заказов нет", Toast.LENGTH_SHORT).show()
+                                    } else {
+                                        exportLabelsToExcelAndShare(ctx, selectedDate, orders, clients)
                                     }
                                 }
                             )
@@ -1504,13 +1521,20 @@ private fun shareOrders(
 ) {
     val sb = StringBuilder()
 
+    val sortedOrders = orders.sortedWith(
+        compareBy(
+            { it.calories },
+            { clients.find { c -> c.id == it.clientId }?.fullName?.lowercase() ?: "" }
+        )
+    )
+
     when (mode) {
         ShareMode.COURIER -> {
             sb.append("Заказы для курьера на $date\n")
-            sb.append("Количество: ${orders.size}\n")
+            sb.append("Количество: ${sortedOrders.size}\n")
             sb.append("─────────────────\n\n")
 
-            orders.forEachIndexed { index, o ->
+            sortedOrders.forEachIndexed { index, o ->
                 val client = clients.find { it.id == o.clientId }
                 val name = client?.fullName ?: "Клиент удалён"
                 val address = client?.address?.takeIf { it.isNotBlank() } ?: "адрес не указан"
@@ -1520,15 +1544,15 @@ private fun shareOrders(
                 sb.append("   Тариф: ${o.calories} ккал\n")
                 sb.append("   Адрес: $address\n")
                 sb.append("   Телефон: $phone\n")
-                if (index < orders.size - 1) sb.append("\n")
+                if (index < sortedOrders.size - 1) sb.append("\n")
             }
         }
         ShareMode.CHEF -> {
             sb.append("Заказы для повара на $date\n")
-            sb.append("Всего рационов: ${orders.size}\n")
+            sb.append("Всего рационов: ${sortedOrders.size}\n")
             sb.append("─────────────────\n\n")
 
-            orders.forEachIndexed { index, o ->
+            sortedOrders.forEachIndexed { index, o ->
                 val client = clients.find { it.id == o.clientId }
                 val name = client?.fullName ?: "Клиент удалён"
 
@@ -1541,7 +1565,7 @@ private fun shareOrders(
             sb.append("\n─────────────────\n")
             sb.append("ИТОГО ПО ТАРИФАМ:\n")
 
-            val grouped = orders.groupBy { it.calories }
+            val grouped = sortedOrders.groupBy { it.calories }
                 .toList()
                 .sortedBy { it.first }
 
@@ -1549,9 +1573,9 @@ private fun shareOrders(
                 sb.append("• $kcal ккал — ${list.size} шт.\n")
             }
 
-            val totalCalories = orders.sumOf { it.calories }
+            val totalCalories = sortedOrders.sumOf { it.calories }
             sb.append("\nВсего калорий за день: $totalCalories\n")
-            sb.append("Всего рационов: ${orders.size}")
+            sb.append("Всего рационов: ${sortedOrders.size}")
         }
     }
 
