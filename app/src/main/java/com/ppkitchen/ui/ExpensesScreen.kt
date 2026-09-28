@@ -1,20 +1,17 @@
 package com.ppkitchen.ui
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
-import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -30,8 +27,15 @@ import java.text.SimpleDateFormat
 import java.util.*
 
 val EXPENSE_CATEGORIES = listOf(
-    "Закупка", "Упаковка", "Зарплата", "Аренда",
-    "Доставка", "Налоги", "Реклама", "Прочее"
+    "Закупка",
+    "Упаковка",
+    "Зарплата (ручная)",
+    "Зарплата повара (авто)",
+    "Аренда",
+    "Доставка",
+    "Налоги",
+    "Реклама",
+    "Прочее"
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -59,8 +63,6 @@ fun ExpensesScreen() {
     var showCreateDialog by remember { mutableStateOf(false) }
     var editingExpense by remember { mutableStateOf<Expense?>(null) }
 
-    // Сворачивание блоков
-    var showFilter by remember { mutableStateOf(false) }
     var showBreakdown by remember { mutableStateOf(false) }
 
     val allExpenses by db.expenseDao().getAll().collectAsState(initial = emptyList())
@@ -78,11 +80,6 @@ fun ExpensesScreen() {
         .toList()
         .sortedByDescending { it.second }
 
-    // Показываем ли активный фильтр (когда что-то выбрано не по умолчанию)
-    val isFilterActive = startDate != defaultStart ||
-            endDate != today ||
-            categoryFilter != "Все"
-
     Scaffold(
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = { CompactTopBar(title = "Расходы") },
@@ -97,139 +94,61 @@ fun ExpensesScreen() {
                 .padding(pad)
                 .fillMaxSize()
         ) {
-            // ===== Сворачиваемый фильтр =====
             Card(
                 Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 8.dp)
-                    .clickable { showFilter = !showFilter }
+                    .padding(12.dp)
             ) {
-                Column(Modifier.padding(12.dp)) {
+                Column(
+                    Modifier.padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text("Фильтр", style = MaterialTheme.typography.titleMedium)
+
                     Row(
                         Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        OutlinedButton(
+                            onClick = { showStartPicker = true },
+                            modifier = Modifier.weight(1f)
                         ) {
-                            Icon(
-                                Icons.Default.FilterList,
-                                contentDescription = null,
-                                tint = if (isFilterActive)
-                                    MaterialTheme.colorScheme.primary
-                                else
-                                    MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            Text(
-                                "Фильтр",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Medium
-                            )
-                            if (isFilterActive) {
-                                Surface(
-                                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
-                                    shape = RoundedCornerShape(6.dp)
-                                ) {
-                                    Text(
-                                        "активен",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier.padding(
-                                            horizontal = 6.dp, vertical = 2.dp
-                                        )
-                                    )
-                                }
-                            }
+                            Icon(Icons.Default.DateRange, null)
+                            Spacer(Modifier.width(4.dp))
+                            Text("С: $startDate", style = MaterialTheme.typography.bodySmall)
                         }
-                        Icon(
-                            imageVector = if (showFilter)
-                                Icons.Default.ExpandLess
-                            else
-                                Icons.Default.ExpandMore,
-                            contentDescription = if (showFilter) "Свернуть" else "Развернуть"
-                        )
+                        OutlinedButton(
+                            onClick = { showEndPicker = true },
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Icon(Icons.Default.DateRange, null)
+                            Spacer(Modifier.width(4.dp))
+                            Text("По: $endDate", style = MaterialTheme.typography.bodySmall)
+                        }
                     }
 
-                    // Краткая инфо, когда фильтр свёрнут, но активен
-                    if (!showFilter && isFilterActive) {
-                        Spacer(Modifier.height(4.dp))
-                        Text(
-                            buildString {
-                                append("$startDate — $endDate")
-                                if (categoryFilter != "Все") append(" · $categoryFilter")
-                            },
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        FilterChip(
+                            selected = categoryFilter == "Все",
+                            onClick = { categoryFilter = "Все" },
+                            label = { Text("Все") }
                         )
-                    }
-
-                    if (showFilter) {
-                        Spacer(Modifier.height(10.dp))
-
-                        Row(
-                            Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            OutlinedButton(
-                                onClick = { showStartPicker = true },
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Icon(Icons.Default.DateRange, null, modifier = Modifier.size(16.dp))
-                                Spacer(Modifier.width(4.dp))
-                                Text("С: $startDate", style = MaterialTheme.typography.bodySmall)
-                            }
-                            OutlinedButton(
-                                onClick = { showEndPicker = true },
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Icon(Icons.Default.DateRange, null, modifier = Modifier.size(16.dp))
-                                Spacer(Modifier.width(4.dp))
-                                Text("По: $endDate", style = MaterialTheme.typography.bodySmall)
-                            }
-                        }
-
-                        Spacer(Modifier.height(8.dp))
-
-                        Row(
-                            Modifier
-                                .fillMaxWidth()
-                                .horizontalScroll(rememberScrollState()),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
+                        EXPENSE_CATEGORIES.forEach { cat ->
                             FilterChip(
-                                selected = categoryFilter == "Все",
-                                onClick = { categoryFilter = "Все" },
-                                label = { Text("Все") }
+                                selected = categoryFilter == cat,
+                                onClick = { categoryFilter = cat },
+                                label = { Text(cat) }
                             )
-                            EXPENSE_CATEGORIES.forEach { cat ->
-                                FilterChip(
-                                    selected = categoryFilter == cat,
-                                    onClick = { categoryFilter = cat },
-                                    label = { Text(cat) }
-                                )
-                            }
-                        }
-
-                        if (isFilterActive) {
-                            Spacer(Modifier.height(6.dp))
-                            TextButton(
-                                onClick = {
-                                    startDate = defaultStart
-                                    endDate = today
-                                    categoryFilter = "Все"
-                                },
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Text("Сбросить фильтр")
-                            }
                         }
                     }
                 }
             }
 
-            // ===== Итого за период (сворачиваемое) =====
             Card(
                 Modifier
                     .fillMaxWidth()
@@ -251,18 +170,15 @@ fun ExpensesScreen() {
                             )
                         }
                         Icon(
-                            imageVector = if (showBreakdown)
-                                Icons.Default.ExpandLess
-                            else
-                                Icons.Default.ExpandMore,
-                            contentDescription = null
+                            imageVector = if (showBreakdown) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                            contentDescription = if (showBreakdown) "Свернуть" else "Развернуть"
                         )
                     }
 
                     if (showBreakdown) {
                         if (breakdown.isNotEmpty()) {
                             Spacer(Modifier.height(12.dp))
-                            Divider()
+                            HorizontalDivider()
                             Spacer(Modifier.height(8.dp))
                             Text(
                                 "По категориям",
@@ -300,7 +216,6 @@ fun ExpensesScreen() {
 
             Spacer(Modifier.height(8.dp))
 
-            // ===== Список расходов =====
             if (filtered.isEmpty()) {
                 Box(
                     Modifier
@@ -326,54 +241,34 @@ fun ExpensesScreen() {
                                 .fillMaxWidth()
                                 .clickable { editingExpense = e }
                         ) {
-                            Row(
-                                Modifier
-                                    .fillMaxWidth()
-                                    .padding(12.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                // Левая часть — категория, комментарий
-                                Column(Modifier.weight(1f)) {
+                            Column(Modifier.padding(12.dp)) {
+                                Row(
+                                    Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
                                     Text(
                                         e.category,
                                         style = MaterialTheme.typography.titleMedium,
-                                        fontWeight = FontWeight.Medium
+                                        fontWeight = if (e.category == "Зарплата повара (авто)")
+                                            FontWeight.Normal
+                                        else
+                                            FontWeight.Medium
                                     )
-                                    if (e.comment.isNotEmpty()) {
-                                        Spacer(Modifier.height(2.dp))
-                                        Text(
-                                            e.comment,
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
-                                }
-
-                                Spacer(Modifier.width(8.dp))
-
-                                // Правая часть — дата (заметная) и сумма
-                                Column(horizontalAlignment = Alignment.End) {
-                                    // Заметная дата — бейдж
-                                    Surface(
-                                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
-                                        shape = RoundedCornerShape(6.dp)
-                                    ) {
-                                        Text(
-                                            formatDisplayDate(e.date),
-                                            style = MaterialTheme.typography.labelLarge,
-                                            color = MaterialTheme.colorScheme.primary,
-                                            fontWeight = FontWeight.Bold,
-                                            modifier = Modifier.padding(
-                                                horizontal = 8.dp, vertical = 4.dp
-                                            )
-                                        )
-                                    }
-                                    Spacer(Modifier.height(6.dp))
                                     Text(
                                         "${e.amount} ₽",
-                                        style = MaterialTheme.typography.titleLarge,
-                                        fontWeight = FontWeight.Bold
+                                        style = MaterialTheme.typography.titleMedium
                                     )
+                                }
+                                // Дата + время
+                                Text(
+                                    if (e.time.isNotBlank())
+                                        "${formatDisplayDate(e.date)} · ${e.time}"
+                                    else
+                                        formatDisplayDate(e.date),
+                                    style = MaterialTheme.typography.bodySmall
+                                )
+                                if (e.comment.isNotEmpty()) {
+                                    Text(e.comment, style = MaterialTheme.typography.bodySmall)
                                 }
                             }
                         }
@@ -444,13 +339,20 @@ fun ExpenseDialog(
     onCancel: () -> Unit
 ) {
     val sdf = remember { SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()) }
+    val sdfTime = remember { SimpleDateFormat("HH:mm", Locale.getDefault()) }
     val today = remember { sdf.format(Date()) }
+    val nowTime = remember { sdfTime.format(Date()) }
     val isEdit = existingExpense != null
 
     var category by remember { mutableStateOf(existingExpense?.category ?: EXPENSE_CATEGORIES[0]) }
     var amount by remember { mutableStateOf(existingExpense?.amount?.toString() ?: "") }
     var comment by remember { mutableStateOf(existingExpense?.comment ?: "") }
     var date by remember { mutableStateOf(existingExpense?.date ?: today) }
+    var time by remember {
+        mutableStateOf(
+            if (isEdit) existingExpense?.time ?: "" else nowTime
+        )
+    }
 
     var expanded by remember { mutableStateOf(false) }
     var showDatePicker by remember { mutableStateOf(false) }
@@ -503,6 +405,25 @@ fun ExpenseDialog(
                     Text("Дата: $date")
                 }
 
+                // Время
+                OutlinedTextField(
+                    value = time,
+                    onValueChange = { input ->
+                        // Разрешаем только цифры и двоеточие, максимум 5 символов
+                        time = input.filter { ch -> ch.isDigit() || ch == ':' }.take(5)
+                    },
+                    label = { Text("Время (ЧЧ:ММ)") },
+                    singleLine = true,
+                    placeholder = { Text("14:35") },
+                    supportingText = {
+                        Text(
+                            "По умолчанию — текущее время. Можно изменить.",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                )
+
                 OutlinedTextField(
                     comment,
                     { comment = it },
@@ -516,13 +437,18 @@ fun ExpenseDialog(
                 val a = amount.toIntOrNull()
                 if (a == null || a <= 0) return@TextButton
 
+                // Простая валидация времени: если введено — оставляем как есть.
+                // Если пусто — значит пользователь очистил, сохраняем пустым.
+                val normalizedTime = time.trim()
+
                 if (isEdit) {
                     onUpdate?.invoke(
                         existingExpense!!.copy(
                             category = category,
                             amount = a,
                             comment = comment.trim(),
-                            date = date
+                            date = date,
+                            time = normalizedTime
                         )
                     )
                 } else {
@@ -531,7 +457,8 @@ fun ExpenseDialog(
                             category = category,
                             amount = a,
                             comment = comment.trim(),
-                            date = date
+                            date = date,
+                            time = normalizedTime
                         )
                     )
                 }

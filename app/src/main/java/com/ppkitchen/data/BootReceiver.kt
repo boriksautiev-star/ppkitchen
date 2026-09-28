@@ -7,7 +7,10 @@ import android.content.Intent
 class BootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action == Intent.ACTION_BOOT_COMPLETED) {
-            ChefReminderScheduler.scheduleNext(context.applicationContext)
+            val ctx = context.applicationContext
+            ChefReminderScheduler.scheduleNext(ctx)
+            ClientEndReminderScheduler.scheduleNext(ctx)
+            CookReminderScheduler.scheduleNext(ctx)
         }
     }
 }

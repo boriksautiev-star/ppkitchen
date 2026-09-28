@@ -19,7 +19,10 @@ import androidx.navigation.navArgument
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MainScreen() {
+fun MainScreen(
+    pendingRenewal: Pair<Long, Long>? = null,
+    onConsumePendingRenewal: () -> Unit = {}
+) {
     val navController = rememberNavController()
     val items = listOf(
         Triple("dashboard", "Отчёт", Icons.Default.Home),
@@ -59,7 +62,12 @@ fun MainScreen() {
             startDestination = "dashboard",
             modifier = Modifier.padding(padding)
         ) {
-            composable("dashboard") { DashboardScreen() }
+            composable("dashboard") {
+                DashboardScreen(
+                    onOpenCooks = { navController.navigate("cooks") },
+                    onOpenSettings = { navController.navigate("settings") }
+                )
+            }
             composable("clients") {
                 ClientsScreen(
                     onClientClick = { id -> navController.navigate("client/$id") }
@@ -75,6 +83,15 @@ fun MainScreen() {
             composable("couriers") {
                 CouriersScreen(onBack = { navController.popBackStack() })
             }
+            composable("cooks") {
+                CooksScreen(onBack = { navController.popBackStack() })
+            }
+            composable("settings") {
+                SettingsScreen(
+                    onBack = { navController.popBackStack() },
+                    onOpenCooks = { navController.navigate("cooks") }
+                )
+            }
             composable(
                 route = "client/{clientId}",
                 arguments = listOf(navArgument("clientId") { type = NavType.LongType })
@@ -86,5 +103,13 @@ fun MainScreen() {
                 )
             }
         }
+    }
+
+    if (pendingRenewal != null) {
+        RenewalDialog(
+            clientId = pendingRenewal.first,
+            orderId = pendingRenewal.second,
+            onDismiss = onConsumePendingRenewal
+        )
     }
 }

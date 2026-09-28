@@ -60,6 +60,14 @@
             android:exported="false" />
 
         <receiver
+            android:name=".data.ClientEndReminderReceiver"
+            android:exported="false" />
+
+        <receiver
+            android:name=".data.CookReminderReceiver"
+            android:exported="false" />
+
+        <receiver
             android:name=".data.BootReceiver"
             android:exported="true">
             <intent-filter>

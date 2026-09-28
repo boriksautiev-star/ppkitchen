@@ -287,6 +287,17 @@ fun buildDiscountPeriods(
     return result
 }
 
+/**
+ * Проверяет, есть ли у клиента следующий заказ (продление).
+ */
+fun hasNextOrder(order: Order, allOrders: List<Order>): Boolean {
+    return allOrders.any { other ->
+        other.id != order.id &&
+                other.clientId == order.clientId &&
+                other.deliveryStart > order.deliveryEnd
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun OrdersScreen(onOpenCouriers: () -> Unit) {
@@ -307,6 +318,10 @@ fun OrdersScreen(onOpenCouriers: () -> Unit) {
 
     var showAssignedCouriers by remember { mutableStateOf(false) }
     var selectedCourierForView by remember { mutableStateOf<Courier?>(null) }
+
+    // Диалог продления (открывается из карточки заказа)
+    var renewalClientId by remember { mutableStateOf<Long?>(null) }
+    var renewalOrderId by remember { mutableStateOf<Long?>(null) }
 
     val allOrders by db.orderDao().getAll().collectAsState(initial = emptyList())
     val clients by db.clientDao().getAll().collectAsState(initial = emptyList())
@@ -470,6 +485,11 @@ fun OrdersScreen(onOpenCouriers: () -> Unit) {
                         val cid = courierIdFor(o.id)
                         val courier = if (cid > 0L) allCouriers.find { it.id == cid } else null
 
+                        // Проверяем последнюю доставку
+                        val isLastDeliveryToday = o.deliveryEnd == selectedDate && !o.isOpenEnded
+                        val isLastDeliveryTomorrow = o.deliveryEnd == shiftDate(selectedDate, 1) && !o.isOpenEnded
+                        val alreadyExtended = hasNextOrder(o, allOrders)
+
                         Card(
                             Modifier
                                 .fillMaxWidth()
@@ -492,7 +512,11 @@ fun OrdersScreen(onOpenCouriers: () -> Unit) {
                                 }
                                 Spacer(Modifier.height(4.dp))
 
-                                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                // Бейджи
+                                Row(
+                                    Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
                                     if (o.isOpenEnded) OpenEndedBadge()
                                     if (activeDiscount > 0) DiscountBadge(activeDiscount)
                                     if (courier != null) {
@@ -509,9 +533,31 @@ fun OrdersScreen(onOpenCouriers: () -> Unit) {
                                         }
                                     }
                                 }
-                                if (o.isOpenEnded || activeDiscount > 0 || courier != null) {
+
+                                // Отдельная строка для бейджа последней доставки — чтобы был заметен
+                                if (isLastDeliveryTomorrow && !alreadyExtended) {
                                     Spacer(Modifier.height(6.dp))
+                                    LastDeliveryBadge(text = "⚠️ Завтра последняя доставка")
+                                } else if (isLastDeliveryToday && !alreadyExtended) {
+                                    Spacer(Modifier.height(6.dp))
+                                    LastDeliveryBadge(text = "🔔 Последняя доставка (сегодня)")
+                                } else if (alreadyExtended && (isLastDeliveryToday || isLastDeliveryTomorrow)) {
+                                    Spacer(Modifier.height(6.dp))
+                                    Surface(
+                                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+                                        shape = MaterialTheme.shapes.small
+                                    ) {
+                                        Text(
+                                            "✅ Продлено",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.primary,
+                                            fontWeight = FontWeight.Medium,
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                        )
+                                    }
                                 }
+
+                                Spacer(Modifier.height(6.dp))
 
                                 if (client != null && client.address.isNotBlank()) {
                                     Text("Адрес: ${client.address}", style = MaterialTheme.typography.bodySmall)
@@ -606,6 +652,23 @@ fun OrdersScreen(onOpenCouriers: () -> Unit) {
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
+                                }
+
+                                // Кнопка «Спросить о продлении» — только если заказ заканчивается и не продлён
+                                if (!o.isOpenEnded && (isLastDeliveryToday || isLastDeliveryTomorrow) && !alreadyExtended) {
+                                    Spacer(Modifier.height(8.dp))
+                                    OutlinedButton(
+                                        onClick = {
+                                            renewalClientId = o.clientId
+                                            renewalOrderId = o.id
+                                        },
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Text(
+                                            "✉️ Спросить о продлении",
+                                            style = MaterialTheme.typography.bodySmall
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -790,6 +853,34 @@ fun OrdersScreen(onOpenCouriers: () -> Unit) {
                 showDatePicker = false
             },
             onDismiss = { showDatePicker = false }
+        )
+    }
+
+    // Диалог продления, открываемый из карточки заказа
+    if (renewalClientId != null && renewalOrderId != null) {
+        RenewalDialog(
+            clientId = renewalClientId!!,
+            orderId = renewalOrderId!!,
+            onDismiss = {
+                renewalClientId = null
+                renewalOrderId = null
+            }
+        )
+    }
+}
+
+@Composable
+fun LastDeliveryBadge(text: String) {
+    Surface(
+        color = MaterialTheme.colorScheme.errorContainer,
+        shape = MaterialTheme.shapes.small
+    ) {
+        Text(
+            text = text,
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onErrorContainer,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
         )
     }
 }

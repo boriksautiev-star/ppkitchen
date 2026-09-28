@@ -70,13 +70,25 @@ fun FinanceDialog(onDismiss: () -> Unit) {
     val packagingExpenses = allExpenses.filter { it.date >= startDate && it.date <= endDate && it.category == "Упаковка" }.sumOf { it.amount }
     val deliveryExpenses = if (autoDelivery) portions * courierRate
     else allExpenses.filter { it.date >= startDate && it.date <= endDate && it.category == "Доставка" }.sumOf { it.amount }
-    val salaryExpenses = allExpenses.filter { it.date >= startDate && it.date <= endDate && it.category == "Зарплата" }.sumOf { it.amount }
+
+    // Зарплата: ручная + авто (повара)
+    val salaryManualExpenses = allExpenses
+        .filter { it.date >= startDate && it.date <= endDate && it.category == "Зарплата (ручная)" }
+        .sumOf { it.amount }
+    val salaryCookAutoExpenses = allExpenses
+        .filter { it.date >= startDate && it.date <= endDate && it.category == "Зарплата повара (авто)" }
+        .sumOf { it.amount }
+    val salaryExpenses = salaryManualExpenses + salaryCookAutoExpenses
+
     val rentExpenses = allExpenses.filter { it.date >= startDate && it.date <= endDate && it.category == "Аренда" }.sumOf { it.amount }
     val taxExpenses = allExpenses.filter { it.date >= startDate && it.date <= endDate && it.category == "Налоги" }.sumOf { it.amount }
     val adExpenses = allExpenses.filter { it.date >= startDate && it.date <= endDate && it.category == "Реклама" }.sumOf { it.amount }
     val otherExpenses = allExpenses.filter {
         it.date >= startDate && it.date <= endDate &&
-                it.category in listOf("Прочее")
+                it.category !in listOf(
+            "Закупка", "Упаковка", "Зарплата (ручная)", "Зарплата повара (авто)",
+            "Аренда", "Доставка", "Налоги", "Реклама"
+        )
     }.sumOf { it.amount }
 
     val variableExpenses = foodExpenses + packagingExpenses + deliveryExpenses + adExpenses + otherExpenses
@@ -163,7 +175,6 @@ fun FinanceDialog(onDismiss: () -> Unit) {
                 // ===== ГЛАВНЫЙ ЭКРАН =====
                 if (screen == 0) {
 
-                    // Период
                     Row(
                         Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -195,7 +206,6 @@ fun FinanceDialog(onDismiss: () -> Unit) {
 
                     Spacer(Modifier.height(4.dp))
 
-                    // Блок 1: Себестоимость
                     Surface(
                         color = MaterialTheme.colorScheme.primaryContainer,
                         shape = RoundedCornerShape(16.dp),
@@ -238,7 +248,6 @@ fun FinanceDialog(onDismiss: () -> Unit) {
                         }
                     }
 
-                    // Блок 2: Точка безубыточности
                     Surface(
                         color = if (isProfitable)
                             MaterialTheme.colorScheme.primaryContainer
@@ -330,7 +339,6 @@ fun FinanceDialog(onDismiss: () -> Unit) {
 
                     Spacer(Modifier.height(4.dp))
 
-                    // Три кнопки для деталей
                     Text(
                         "Подробнее",
                         style = MaterialTheme.typography.titleSmall
@@ -389,7 +397,46 @@ fun FinanceDialog(onDismiss: () -> Unit) {
                     Spacer(Modifier.height(8.dp))
                     Text("Фиксированные (не зависят от объёма)", style = MaterialTheme.typography.titleSmall)
 
-                    ExpenseRow("Зарплата", salaryExpenses, totalExpenses)
+                    if (salaryManualExpenses > 0 || salaryCookAutoExpenses > 0) {
+                        ExpenseRow("Зарплата", salaryExpenses, totalExpenses)
+                        // Расшифровка
+                        if (salaryManualExpenses > 0) {
+                            Row(
+                                Modifier.fillMaxWidth().padding(start = 12.dp, top = 2.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text(
+                                    "  • Ручная",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Text(
+                                    "$salaryManualExpenses ₽",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                        if (salaryCookAutoExpenses > 0) {
+                            Row(
+                                Modifier.fillMaxWidth().padding(start = 12.dp, top = 2.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text(
+                                    "  • Повара (авто)",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Text(
+                                    "$salaryCookAutoExpenses ₽",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    } else {
+                        ExpenseRow("Зарплата", 0, totalExpenses)
+                    }
                     ExpenseRow("Аренда", rentExpenses, totalExpenses)
                     if (taxExpenses > 0) ExpenseRow("Налоги", taxExpenses, totalExpenses)
 
@@ -673,13 +720,4 @@ fun ExpenseRow(label: String, amount: Int, total: Int) {
             )
         }
     }
-}
-@Composable
-fun CostDialog(onDismiss: () -> Unit) {
-    FinanceDialog(onDismiss)
-}
-
-@Composable
-fun BreakEvenDialog(onDismiss: () -> Unit) {
-    FinanceDialog(onDismiss)
 }

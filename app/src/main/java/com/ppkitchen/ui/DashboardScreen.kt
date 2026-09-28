@@ -43,7 +43,10 @@ import java.util.*
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun DashboardScreen() {
+fun DashboardScreen(
+    onOpenCooks: () -> Unit = {},
+    onOpenSettings: () -> Unit = {}
+) {
     val ctx = LocalContext.current
     val db = remember { AppDatabase.get(ctx) }
     val scope = rememberCoroutineScope()
@@ -67,9 +70,7 @@ fun DashboardScreen() {
     var showRestoreConfirm by remember { mutableStateOf<Uri?>(null) }
     var showBackupSettings by remember { mutableStateOf(false) }
     var showFinanceDialog by remember { mutableStateOf(false) }
-    var showSettingsDialog by remember { mutableStateOf(false) }
 
-    // Режим графика: "income" | "accrual" | "both"
     var chartMode by remember { mutableStateOf(SettingsPreferences.getChartMode(ctx)) }
 
     val filePicker = rememberLauncherForActivityResult(
@@ -106,7 +107,6 @@ fun DashboardScreen() {
     val margin = if (r > 0) (profit * 100 / r) else 0
     val totalRations = caloriesList.sumOf { it.count }
 
-    // Данные графиков
     val incomeChartData = remember(allOrders, startDate, endDate, todayStr) {
         computeDailyIncome(allOrders, startDate, endDate, todayStr)
     }
@@ -136,7 +136,7 @@ fun DashboardScreen() {
                             leadingIcon = { Icon(Icons.Default.Settings, null) },
                             onClick = {
                                 menuExpanded = false
-                                showSettingsDialog = true
+                                onOpenSettings()
                             }
                         )
                         HorizontalDivider()
@@ -290,7 +290,6 @@ fun DashboardScreen() {
                 }
             }
 
-            // === Переключатель режима графика ===
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("Режим графика", style = MaterialTheme.typography.titleSmall)
@@ -327,11 +326,10 @@ fun DashboardScreen() {
                         )
                     }
 
-                    // Подсказка
                     Text(
                         when (chartMode) {
-                            "income" -> "💵 Показаны деньги, которые фактически пришли в каждый день. Если несколько заказов внесены в один день — будет пик."
-                            "accrual" -> "📅 Показано, сколько вы зарабатываете в день фактического питания клиентов. Ровный график без пиков."
+                            "income" -> "💵 Деньги, которые фактически пришли в каждый день. Если несколько заказов внесены в один день — будет пик."
+                            "accrual" -> "📅 Сколько вы зарабатываете в день фактического питания клиентов. Ровный график без пиков."
                             else -> "Показаны оба графика: поступления и распределённая выручка."
                         },
                         style = MaterialTheme.typography.bodySmall,
@@ -340,13 +338,12 @@ fun DashboardScreen() {
                 }
             }
 
-            // === Графики ===
             if (chartMode == "income" || chartMode == "both") {
                 if (incomeChartData.isNotEmpty()) {
                     RevenueChartCard(
                         dailyData = incomeChartData,
                         title = "Поступления по дням",
-                        subtitle = "Когда фактически пришли деньги от клиентов",
+                        subtitle = "Когда фактически пришли деньги",
                         accentColor = MaterialTheme.colorScheme.primary
                     )
                 }
@@ -357,7 +354,7 @@ fun DashboardScreen() {
                     RevenueChartCard(
                         dailyData = accrualChartData,
                         title = "Выручка по дням питания",
-                        subtitle = "Распределённая сумма — сколько зарабатываете в день",
+                        subtitle = "Распределённая сумма — что зарабатываете в день",
                         accentColor = MaterialTheme.colorScheme.tertiary
                     )
                 }
@@ -369,7 +366,6 @@ fun DashboardScreen() {
     }
 
     if (showFinanceDialog) FinanceDialog(onDismiss = { showFinanceDialog = false })
-    if (showSettingsDialog) SettingsDialog(onDismiss = { showSettingsDialog = false })
 
     if (showStartPicker) {
         SimpleDatePickerDialog(
@@ -425,11 +421,6 @@ fun DashboardScreen() {
     }
 }
 
-/**
- * Кассовый метод — выручка учитывается в день поступления денег.
- * Разовые оплаты: вся сумма в день оформления (date).
- * Ежедневные/бессрочные: по дням доставки.
- */
 private fun computeDailyIncome(
     orders: List<Order>,
     startDate: String,
@@ -473,11 +464,6 @@ private fun computeDailyIncome(
     return result
 }
 
-/**
- * Метод начисления — выручка распределяется по дням фактического питания.
- * Каждый оплаченный заказ "размазывается" по дням доставки равными долями.
- * Пиков от нескольких оформленных заказов в один день не будет.
- */
 private fun computeDailyAccrual(
     orders: List<Order>,
     startDate: String,
@@ -501,8 +487,6 @@ private fun computeDailyAccrual(
         var dayTotal = 0
 
         if (dayStr <= today) {
-            // ВСЕ заказы (и оплаченные, и ежедневные, и бессрочные)
-            // распределяем по дням доставки.
             orders.forEach { o ->
                 if (o.paid || o.dailyPayment || o.isOpenEnded) {
                     dayTotal += sumForRange(o, dayStr, dayStr)

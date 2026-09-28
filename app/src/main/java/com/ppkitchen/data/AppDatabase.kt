@@ -10,9 +10,10 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 @Database(
     entities = [
         Client::class, Order::class, Expense::class,
-        CashDeposit::class, Courier::class, OrderCourierAssignment::class
+        CashDeposit::class, Courier::class, OrderCourierAssignment::class,
+        Cook::class
     ],
-    version = 14,
+    version = 17,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -22,6 +23,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun cashDepositDao(): CashDepositDao
     abstract fun courierDao(): CourierDao
     abstract fun assignmentDao(): OrderCourierAssignmentDao
+    abstract fun cookDao(): CookDao
 
     companion object {
         @Volatile private var INSTANCE: AppDatabase? = null
@@ -114,6 +116,71 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_14_15 = object : Migration(14, 15) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS cooks (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        name TEXT NOT NULL,
+                        phone TEXT NOT NULL DEFAULT '',
+                        rateWeekday INTEGER NOT NULL DEFAULT 0,
+                        rateWeekend INTEGER NOT NULL DEFAULT 0,
+                        workDays TEXT NOT NULL DEFAULT '1,2,3,4,5,6,7',
+                        active INTEGER NOT NULL DEFAULT 1,
+                        comment TEXT NOT NULL DEFAULT ''
+                    )
+                """)
+                db.execSQL("""
+                    UPDATE expenses SET category = 'Зарплата (ручная)' WHERE category = 'Зарплата'
+                """)
+            }
+        }
+
+        private val MIGRATION_15_16 = object : Migration(15, 16) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS cooks_new (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        name TEXT NOT NULL,
+                        phone TEXT NOT NULL DEFAULT '',
+                        rateMon INTEGER NOT NULL DEFAULT 0,
+                        rateTue INTEGER NOT NULL DEFAULT 0,
+                        rateWed INTEGER NOT NULL DEFAULT 0,
+                        rateThu INTEGER NOT NULL DEFAULT 0,
+                        rateFri INTEGER NOT NULL DEFAULT 0,
+                        rateSat INTEGER NOT NULL DEFAULT 0,
+                        rateSun INTEGER NOT NULL DEFAULT 0,
+                        active INTEGER NOT NULL DEFAULT 1,
+                        comment TEXT NOT NULL DEFAULT ''
+                    )
+                """)
+                db.execSQL("""
+                    INSERT INTO cooks_new (id, name, phone,
+                        rateMon, rateTue, rateWed, rateThu, rateFri, rateSat, rateSun,
+                        active, comment)
+                    SELECT 
+                        id, name, phone,
+                        CASE WHEN ',' || workDays || ',' LIKE '%,1,%' THEN rateWeekday ELSE 0 END,
+                        CASE WHEN ',' || workDays || ',' LIKE '%,2,%' THEN rateWeekday ELSE 0 END,
+                        CASE WHEN ',' || workDays || ',' LIKE '%,3,%' THEN rateWeekday ELSE 0 END,
+                        CASE WHEN ',' || workDays || ',' LIKE '%,4,%' THEN rateWeekday ELSE 0 END,
+                        CASE WHEN ',' || workDays || ',' LIKE '%,5,%' THEN rateWeekday ELSE 0 END,
+                        CASE WHEN ',' || workDays || ',' LIKE '%,6,%' THEN rateWeekend ELSE 0 END,
+                        CASE WHEN ',' || workDays || ',' LIKE '%,7,%' THEN rateWeekend ELSE 0 END,
+                        active, comment
+                    FROM cooks
+                """)
+                db.execSQL("DROP TABLE cooks")
+                db.execSQL("ALTER TABLE cooks_new RENAME TO cooks")
+            }
+        }
+
+        private val MIGRATION_16_17 = object : Migration(16, 17) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE expenses ADD COLUMN time TEXT NOT NULL DEFAULT ''")
+            }
+        }
+
         fun get(context: Context): AppDatabase =
             INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
@@ -124,7 +191,8 @@ abstract class AppDatabase : RoomDatabase() {
                     .addMigrations(
                         MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8,
                         MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11,
-                        MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14
+                        MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14,
+                        MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17
                     )
                     .fallbackToDestructiveMigration()
                     .build()

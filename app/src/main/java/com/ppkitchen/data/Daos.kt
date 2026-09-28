@@ -103,6 +103,9 @@ interface ExpenseDao {
 
     @Query("SELECT SUM(amount) FROM expenses WHERE date >= :start AND date <= :end AND category = :category")
     fun expensesByCategoryBetween(start: String, end: String, category: String): Flow<Int?>
+
+    @Query("SELECT COUNT(*) FROM expenses WHERE date = :date AND category = :category AND comment = :comment")
+    suspend fun countByDateCategoryComment(date: String, category: String, comment: String): Int
 }
 
 @Dao
@@ -166,4 +169,25 @@ interface OrderCourierAssignmentDao {
 
     @Query("DELETE FROM order_courier_assignments WHERE courierId = :courierId AND date = :date")
     suspend fun deleteByCourierAndDate(courierId: Long, date: String)
+}
+
+@Dao
+interface CookDao {
+    @Query("SELECT * FROM cooks ORDER BY active DESC, name")
+    fun getAll(): Flow<List<Cook>>
+
+    @Query("SELECT * FROM cooks WHERE active = 1 ORDER BY name")
+    fun getActive(): Flow<List<Cook>>
+
+    @Query("SELECT * FROM cooks WHERE id = :id")
+    fun getById(id: Long): Flow<Cook?>
+
+    @Insert
+    suspend fun insert(cook: Cook): Long
+
+    @Update
+    suspend fun update(cook: Cook)
+
+    @Delete
+    suspend fun delete(cook: Cook)
 }

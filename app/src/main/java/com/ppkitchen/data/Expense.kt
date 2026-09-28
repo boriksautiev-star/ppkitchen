@@ -7,6 +7,7 @@ import androidx.room.PrimaryKey
 data class Expense(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val date: String,
+    val time: String = "",   // "HH:mm", пусто = нет данных
     val category: String,
     val amount: Int,
     val comment: String = ""
