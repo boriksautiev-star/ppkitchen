@@ -43,8 +43,9 @@ fun RenewalDialog(
 
             if (c != null && o != null) {
                 val template = SettingsPreferences.getRenewalMessageText(ctx)
+                // В шаблон подставляем ТОЛЬКО имя клиента (без фамилии)
                 messageText = template
-                    .replace("{имя}", c.fullName)
+                    .replace("{имя}", c.firstName)
                     .replace("{дата}", formatDisplayDate(o.deliveryEnd))
                     .replace("{калории}", "${o.calories}")
                     .replace("{адрес}", c.address.ifBlank { "—" })
