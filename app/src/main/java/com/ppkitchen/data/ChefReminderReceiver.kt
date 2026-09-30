@@ -16,6 +16,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
+import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 
@@ -32,21 +33,24 @@ class ChefReminderReceiver : BroadcastReceiver() {
                 }
 
                 val db = AppDatabase.get(appContext)
-                val today = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
+                val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
+                val today = sdf.format(Date())
+                // Уведомление формируется на ЗАВТРА, чтобы повар знал заранее
+                val tomorrow = shiftDate(today, 1)
+
                 val allOrders = db.orderDao().getAll().first()
                 val clients = db.clientDao().getAll().first()
 
-                val todayOrders = ChefMessageBuilder.ordersForDate(allOrders, today)
-                if (todayOrders.isEmpty()) {
-                    Log.d("ChefReminder", "Нет заказов на $today")
+                val tomorrowOrders = ChefMessageBuilder.ordersForDate(allOrders, tomorrow)
+                if (tomorrowOrders.isEmpty()) {
+                    Log.d("ChefReminder", "Нет заказов на $tomorrow")
                     ChefReminderScheduler.scheduleNext(appContext)
                     return@launch
                 }
 
-                val text = ChefMessageBuilder.build(today, todayOrders, clients)
+                val text = ChefMessageBuilder.build(tomorrow, tomorrowOrders, clients)
                 showNotification(appContext, text)
 
-                // Планируем следующий день
                 ChefReminderScheduler.scheduleNext(appContext)
             } catch (e: Exception) {
                 Log.e("ChefReminder", "Ошибка", e)
@@ -107,7 +111,6 @@ class ChefReminderReceiver : BroadcastReceiver() {
         phone: String,
         text: String
     ): Intent {
-        // Для WhatsApp чистим номер до цифр (без +)
         val cleanPhone = phone.replace(Regex("[^0-9]"), "")
 
         return when (messenger) {
@@ -158,6 +161,18 @@ class ChefReminderReceiver : BroadcastReceiver() {
             true
         } catch (e: PackageManager.NameNotFoundException) {
             false
+        }
+    }
+
+    private fun shiftDate(date: String, days: Int): String {
+        return try {
+            val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
+            val cal = Calendar.getInstance()
+            cal.time = sdf.parse(date) ?: return date
+            cal.add(Calendar.DAY_OF_MONTH, days)
+            sdf.format(cal.time)
+        } catch (e: Exception) {
+            date
         }
     }
 }
