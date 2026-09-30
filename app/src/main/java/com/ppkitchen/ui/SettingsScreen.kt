@@ -83,6 +83,9 @@ fun SettingsScreen(
     var chefMessenger by remember {
         mutableStateOf(SettingsPreferences.getChefMessenger(ctx))
     }
+    var chefDayOffset by remember {
+        mutableStateOf(SettingsPreferences.getChefDayOffset(ctx))
+    }
 
     // Уведомление об окончании питания
     var clientEndEnabled by remember {
@@ -160,7 +163,6 @@ fun SettingsScreen(
         else showTestResult = "Разрешение на контакты не выдано"
     }
 
-    // Функция сохранения всех настроек
     fun saveAll() {
         SettingsPreferences.setThemeMode(ctx, themeMode)
         ThemeState.update(themeMode)
@@ -183,6 +185,7 @@ fun SettingsScreen(
         SettingsPreferences.setChefSendMinute(ctx, chefMinute.toIntOrNull() ?: 0)
         SettingsPreferences.setChefPhone(ctx, chefPhone)
         SettingsPreferences.setChefMessenger(ctx, chefMessenger)
+        SettingsPreferences.setChefDayOffset(ctx, chefDayOffset)
         if (chefEnabled) {
             ChefReminderScheduler.scheduleNext(ctx)
         } else {
@@ -285,8 +288,6 @@ fun SettingsScreen(
 
                 OutlinedButton(
                     onClick = {
-                        // Сначала сохраняем изменения, потом открываем экран поваров.
-                        // Не вызываем onBack() — чтобы «Назад» из поваров вернул в настройки.
                         saveAll()
                         onOpenCooks()
                     },
@@ -371,6 +372,35 @@ fun SettingsScreen(
                 }
 
                 if (chefEnabled) {
+                    // Режим отправки: день в день / за день
+                    Text("Когда отправлять", style = MaterialTheme.typography.bodyMedium)
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        FilterChip(
+                            selected = chefDayOffset == 0,
+                            onClick = { chefDayOffset = 0 },
+                            label = { Text("День в день", style = MaterialTheme.typography.bodySmall) },
+                            modifier = Modifier.weight(1f)
+                        )
+                        FilterChip(
+                            selected = chefDayOffset == 1,
+                            onClick = { chefDayOffset = 1 },
+                            label = { Text("За день", style = MaterialTheme.typography.bodySmall) },
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+
+                    Text(
+                        if (chefDayOffset == 0)
+                            "📅 Список формируется на текущий день — повар получает его утром в день готовки."
+                        else
+                            "📅 Список формируется на завтра — повар получает его накануне вечером или утром.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
                     Row(
                         Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -454,14 +484,8 @@ fun SettingsScreen(
                                     saveAll()
                                     ChefReminderScheduler.scheduleNext(ctx)
                                     chefNextScheduleText = ChefReminderScheduler.getNextScheduleText(ctx)
-                                    val today = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
-                                    val allOrders = db.orderDao().getAll().first()
-                                    val clients = db.clientDao().getAll().first()
-                                    val todayOrders = ChefMessageBuilder.ordersForDate(allOrders, today)
-                                    if (todayOrders.isNotEmpty()) {
-                                        val intent = Intent(ctx, com.ppkitchen.data.ChefReminderReceiver::class.java)
-                                        ctx.sendBroadcast(intent)
-                                    }
+                                    val intent = Intent(ctx, com.ppkitchen.data.ChefReminderReceiver::class.java)
+                                    ctx.sendBroadcast(intent)
                                     showTestResult = "Повар: перепланировано и запущено"
                                 } catch (e: Exception) {
                                     showTestResult = "Ошибка: ${e.message}"

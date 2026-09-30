@@ -35,20 +35,22 @@ class ChefReminderReceiver : BroadcastReceiver() {
                 val db = AppDatabase.get(appContext)
                 val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
                 val today = sdf.format(Date())
-                // Уведомление формируется на ЗАВТРА, чтобы повар знал заранее
-                val tomorrow = shiftDate(today, 1)
+
+                // Смещение в днях: 0 = день в день, 1 = за день (по умолчанию)
+                val dayOffset = SettingsPreferences.getChefDayOffset(appContext)
+                val targetDate = shiftDate(today, dayOffset)
 
                 val allOrders = db.orderDao().getAll().first()
                 val clients = db.clientDao().getAll().first()
 
-                val tomorrowOrders = ChefMessageBuilder.ordersForDate(allOrders, tomorrow)
-                if (tomorrowOrders.isEmpty()) {
-                    Log.d("ChefReminder", "Нет заказов на $tomorrow")
+                val targetOrders = ChefMessageBuilder.ordersForDate(allOrders, targetDate)
+                if (targetOrders.isEmpty()) {
+                    Log.d("ChefReminder", "Нет заказов на $targetDate")
                     ChefReminderScheduler.scheduleNext(appContext)
                     return@launch
                 }
 
-                val text = ChefMessageBuilder.build(tomorrow, tomorrowOrders, clients)
+                val text = ChefMessageBuilder.build(targetDate, targetOrders, clients)
                 showNotification(appContext, text)
 
                 ChefReminderScheduler.scheduleNext(appContext)

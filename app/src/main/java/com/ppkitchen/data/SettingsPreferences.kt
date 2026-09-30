@@ -14,6 +14,8 @@ object SettingsPreferences {
     private const val KEY_CHEF_PHONE = "chef_phone"
     private const val KEY_CHEF_MESSENGER = "chef_messenger"
     private const val KEY_CHEF_NEXT_SCHEDULE = "chef_next_schedule"
+    // Режим отправки: 0 = день в день, 1 = за день (по умолчанию — за день)
+    private const val KEY_CHEF_DAY_OFFSET = "chef_day_offset"
 
     // Тема
     private const val KEY_THEME_MODE = "theme_mode"
@@ -92,6 +94,13 @@ object SettingsPreferences {
 
     fun setChefNextSchedule(context: Context, timestamp: Long) =
         prefs(context).edit().putLong(KEY_CHEF_NEXT_SCHEDULE, timestamp).apply()
+
+    /** 0 = день в день, 1 = за день */
+    fun getChefDayOffset(context: Context): Int =
+        prefs(context).getInt(KEY_CHEF_DAY_OFFSET, 1)
+
+    fun setChefDayOffset(context: Context, offset: Int) =
+        prefs(context).edit().putInt(KEY_CHEF_DAY_OFFSET, offset.coerceIn(0, 1)).apply()
 
     // === Тема ===
     fun getThemeMode(context: Context): String =
