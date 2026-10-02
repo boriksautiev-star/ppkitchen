@@ -1,6 +1,5 @@
 package com.ppkitchen.ui
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -18,9 +17,24 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogProperties
 import com.ppkitchen.data.AppDatabase
+import com.ppkitchen.data.Order
 import com.ppkitchen.data.SettingsPreferences
 import java.text.SimpleDateFormat
 import java.util.*
+
+data class TariffStats(
+    val calories: Int,
+    val portions: Int,
+    val revenue: Int,
+    val pureCost: Double,
+    val fullCost: Double,
+    val margin: Double,
+    val marginPercent: Double,
+    val avgPricePerDay: Double,
+    val costPerDay: Double,
+    val recommendedPrice20: Double,
+    val recommendedPrice30: Double
+)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -41,7 +55,7 @@ fun FinanceDialog(onDismiss: () -> Unit) {
     var showStartPicker by remember { mutableStateOf(false) }
     var showEndPicker by remember { mutableStateOf(false) }
 
-    // Экран: 0 = главный, 1 = разбивка, 2 = цены, 3 = сценарии
+    // Экран: 0 = главный, 1 = разбивка, 2 = цены, 3 = сценарии, 4 = тарифы
     var screen by remember { mutableStateOf(0) }
 
     val allOrders by db.orderDao().getAll().collectAsState(initial = emptyList())
@@ -71,7 +85,6 @@ fun FinanceDialog(onDismiss: () -> Unit) {
     val deliveryExpenses = if (autoDelivery) portions * courierRate
     else allExpenses.filter { it.date >= startDate && it.date <= endDate && it.category == "Доставка" }.sumOf { it.amount }
 
-    // Зарплата: ручная + авто (повара)
     val salaryManualExpenses = allExpenses
         .filter { it.date >= startDate && it.date <= endDate && it.category == "Зарплата (ручная)" }
         .sumOf { it.amount }
@@ -96,7 +109,7 @@ fun FinanceDialog(onDismiss: () -> Unit) {
     val totalExpenses = variableExpenses + fixedExpenses
 
     val paidOrdersSum = allOrders
-        .filter { it.date >= startDate && it.date <= endDate && it.paid && !it.dailyPayment }
+        .filter { it.date >= startDate && it.date <= endDate && it.paid && !it.dailyPayment && !it.isOpenEnded }
         .sumOf { it.amount }
     val dailyRevenueSum = allOrders
         .filter { it.dailyPayment || it.isOpenEnded }
@@ -137,6 +150,25 @@ fun FinanceDialog(onDismiss: () -> Unit) {
     val breakEvenClients = if (avgClientCalories > 0) breakEvenCalories / avgClientCalories else 0.0
     val currentClients = if (avgClientCalories > 0) soldCalories / avgClientCalories else 0.0
 
+    // Уникальные калорийности из заказов — для раздела «Цены»
+    val uniqueCalories = remember(allOrders) {
+        allOrders.map { it.calories }.distinct().sorted()
+    }
+
+    // Статистика по тарифам (для экрана «Тарифы»)
+    val tariffStats = remember(allOrders, allExpenses, startDate, endDate, effectiveEnd,
+        soldCalories, foodExpenses, totalExpenses) {
+        computeAllTariffStats(
+            allOrders = allOrders,
+            startDate = startDate,
+            endDate = endDate,
+            effectiveEnd = effectiveEnd,
+            totalSoldCalories = soldCalories,
+            totalFoodExpenses = foodExpenses,
+            totalExpenses = totalExpenses
+        )
+    }
+
     AlertDialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(
@@ -158,7 +190,9 @@ fun FinanceDialog(onDismiss: () -> Unit) {
                         0 -> "Финансы"
                         1 -> "Разбивка расходов"
                         2 -> "Рекомендованные цены"
-                        else -> "Сценарии"
+                        3 -> "Сценарии"
+                        4 -> "Тарифы"
+                        else -> "Финансы"
                     }
                 )
             }
@@ -360,6 +394,18 @@ fun FinanceDialog(onDismiss: () -> Unit) {
                             onClick = { screen = 2 },
                             modifier = Modifier.weight(1f)
                         )
+                    }
+
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        DetailButton(
+                            emoji = "🏷️",
+                            label = "Тарифы",
+                            onClick = { screen = 4 },
+                            modifier = Modifier.weight(1f)
+                        )
                         DetailButton(
                             emoji = "📈",
                             label = "Сценарии",
@@ -399,7 +445,6 @@ fun FinanceDialog(onDismiss: () -> Unit) {
 
                     if (salaryManualExpenses > 0 || salaryCookAutoExpenses > 0) {
                         ExpenseRow("Зарплата", salaryExpenses, totalExpenses)
-                        // Расшифровка
                         if (salaryManualExpenses > 0) {
                             Row(
                                 Modifier.fillMaxWidth().padding(start = 12.dp, top = 2.dp),
@@ -548,27 +593,46 @@ fun FinanceDialog(onDismiss: () -> Unit) {
                             style = MaterialTheme.typography.titleSmall
                         )
 
-                        val tariffs = listOf(900, 1200, 1300, 1500, 1800, 2500)
-                        tariffs.forEach { kcal ->
-                            val priceForDay = recommended20 * kcal / 100
+                        if (uniqueCalories.isEmpty()) {
                             Surface(
-                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
                                 shape = RoundedCornerShape(8.dp),
                                 modifier = Modifier.fillMaxWidth()
                             ) {
-                                Row(
-                                    Modifier.fillMaxWidth().padding(12.dp),
-                                    horizontalArrangement = Arrangement.SpaceBetween
+                                Text(
+                                    "Пока нет заказов — нечего считать. Добавьте заказ с любым тарифом.",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    modifier = Modifier.padding(12.dp)
+                                )
+                            }
+                        } else {
+                            uniqueCalories.forEach { kcal ->
+                                val priceForDay = recommended20 * kcal / 100
+                                Surface(
+                                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+                                    shape = RoundedCornerShape(8.dp),
+                                    modifier = Modifier.fillMaxWidth()
                                 ) {
-                                    Text("$kcal ккал")
-                                    Text(
-                                        String.format(Locale.US, "%.0f ₽/день", priceForDay),
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.primary
-                                    )
+                                    Row(
+                                        Modifier.fillMaxWidth().padding(12.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Text("$kcal ккал")
+                                        Text(
+                                            String.format(Locale.US, "%.0f ₽/день", priceForDay),
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.primary
+                                        )
+                                    }
                                 }
                             }
                         }
+                    } else {
+                        Text(
+                            "Пока нет данных за период — нечего считать.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
                 }
 
@@ -651,6 +715,63 @@ fun FinanceDialog(onDismiss: () -> Unit) {
                         )
                     }
                 }
+
+                // ===== ЭКРАН 4: ТАРИФЫ =====
+                if (screen == 4) {
+                    Text(
+                        "Себестоимость по тарифам",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        "Период: $startDate — $endDate · $periodDays дней",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
+                    Spacer(Modifier.height(8.dp))
+
+                    if (tariffStats.isEmpty() || tariffStats.all { it.portions == 0 }) {
+                        Surface(
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                "Пока нет данных за выбранный период. Измените период или добавьте заказы.",
+                                style = MaterialTheme.typography.bodyMedium,
+                                modifier = Modifier.padding(16.dp)
+                            )
+                        }
+                    } else {
+                        tariffStats.forEach { stat ->
+                            TariffCard(stat)
+                        }
+
+                        Spacer(Modifier.height(8.dp))
+
+                        Surface(
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(Modifier.padding(12.dp)) {
+                                Text(
+                                    "Как считается",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    fontWeight = FontWeight.Medium
+                                )
+                                Spacer(Modifier.height(4.dp))
+                                Text(
+                                    "Себестоимость тарифа = (калории тарифа ÷ все калории за период) × все расходы. " +
+                                            "Рекомендованная цена — полная себестоимость + 20% или 30%.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+                }
             }
         },
         confirmButton = {
@@ -674,6 +795,131 @@ fun FinanceDialog(onDismiss: () -> Unit) {
             initialDate = endDate,
             onDateSelected = { endDate = it; showEndPicker = false },
             onDismiss = { showEndPicker = false }
+        )
+    }
+}
+
+/** Карточка одного тарифа */
+@Composable
+private fun TariffCard(stat: TariffStats) {
+    val (bgColor, accentColor) = when {
+        stat.marginPercent >= 20 -> MaterialTheme.colorScheme.primaryContainer to
+                MaterialTheme.colorScheme.primary
+        stat.marginPercent >= 5 -> MaterialTheme.colorScheme.secondaryContainer to
+                MaterialTheme.colorScheme.secondary
+        stat.marginPercent >= 0 -> MaterialTheme.colorScheme.tertiaryContainer to
+                MaterialTheme.colorScheme.tertiary
+        else -> MaterialTheme.colorScheme.errorContainer to
+                MaterialTheme.colorScheme.error
+    }
+
+    val emoji = when {
+        stat.marginPercent >= 20 -> "🟢"
+        stat.marginPercent >= 5 -> "🟡"
+        stat.marginPercent >= 0 -> "🟠"
+        else -> "🔴"
+    }
+
+    val recommendation = when {
+        stat.marginPercent >= 20 -> "Рентабельный"
+        stat.marginPercent >= 5 -> "Работает. Можно поднять цену"
+        stat.marginPercent >= 0 -> "Почти в ноль. Поднимите цену"
+        else -> "УБЫТОЧНЫЙ. Поднимите цену"
+    }
+
+    Surface(
+        color = bgColor,
+        shape = RoundedCornerShape(12.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(Modifier.padding(14.dp)) {
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    "$emoji ${stat.calories} ккал",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = accentColor
+                )
+                Text(
+                    "${if (stat.marginPercent >= 0) "+" else ""}${String.format(Locale.US, "%.0f", stat.marginPercent)}%",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = accentColor
+                )
+            }
+
+            Spacer(Modifier.height(6.dp))
+            Text(
+                recommendation,
+                style = MaterialTheme.typography.bodySmall,
+                color = accentColor,
+                fontWeight = FontWeight.Medium
+            )
+
+            Spacer(Modifier.height(8.dp))
+            HorizontalDivider(color = accentColor.copy(alpha = 0.3f))
+            Spacer(Modifier.height(8.dp))
+
+            TariffRow("Продано порций", "${stat.portions} дн.")
+            TariffRow("Выручка", "${stat.revenue} ₽")
+            TariffRow(
+                "Себестоимость (полная)",
+                "${String.format(Locale.US, "%.0f", stat.fullCost)} ₽"
+            )
+            TariffRow(
+                "Себестоимость (чистая)",
+                "${String.format(Locale.US, "%.0f", stat.pureCost)} ₽"
+            )
+            TariffRow(
+                "Маржа",
+                "${if (stat.margin >= 0) "+" else ""}${String.format(Locale.US, "%.0f", stat.margin)} ₽"
+            )
+
+            Spacer(Modifier.height(6.dp))
+            HorizontalDivider(color = accentColor.copy(alpha = 0.2f))
+            Spacer(Modifier.height(6.dp))
+
+            TariffRow(
+                "Средняя цена дня",
+                "${String.format(Locale.US, "%.0f", stat.avgPricePerDay)} ₽"
+            )
+            TariffRow(
+                "Себестоимость дня",
+                "${String.format(Locale.US, "%.0f", stat.costPerDay)} ₽"
+            )
+            TariffRow(
+                "Рекоменд. цена (+20%)",
+                "${String.format(Locale.US, "%.0f", stat.recommendedPrice20)} ₽",
+                highlight = true
+            )
+            TariffRow(
+                "Рекоменд. цена (+30%)",
+                "${String.format(Locale.US, "%.0f", stat.recommendedPrice30)} ₽",
+                highlight = true
+            )
+        }
+    }
+}
+
+@Composable
+private fun TariffRow(label: String, value: String, highlight: Boolean = false) {
+    Row(
+        Modifier.fillMaxWidth().padding(vertical = 2.dp),
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Text(
+            label,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Text(
+            value,
+            style = MaterialTheme.typography.bodySmall,
+            fontWeight = if (highlight) FontWeight.Bold else FontWeight.Medium
         )
     }
 }
@@ -719,5 +965,70 @@ fun ExpenseRow(label: String, amount: Int, total: Int) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
+    }
+}
+
+/** Считает статистику по всем тарифам */
+private fun computeAllTariffStats(
+    allOrders: List<Order>,
+    startDate: String,
+    endDate: String,
+    effectiveEnd: String,
+    totalSoldCalories: Int,
+    totalFoodExpenses: Int,
+    totalExpenses: Int
+): List<TariffStats> {
+    if (totalSoldCalories <= 0) return emptyList()
+
+    val uniqueCalories = allOrders.map { it.calories }.distinct().sorted()
+
+    return uniqueCalories.mapNotNull { kcal ->
+        val tariffOrders = allOrders.filter { it.calories == kcal }
+
+        val portions = tariffOrders.sumOf { o ->
+            val effStart = maxOf(o.deliveryStart, startDate)
+            val effEnd = minOf(o.deliveryEnd, effectiveEnd)
+            if (effStart > effEnd) 0
+            else countDeliveriesBetween(effStart, effEnd, parseDays(o.deliveryDaysOfWeek))
+        }
+
+        if (portions <= 0) return@mapNotNull null
+
+        val paidSum = tariffOrders
+            .filter { it.date >= startDate && it.date <= endDate && it.paid && !it.dailyPayment && !it.isOpenEnded }
+            .sumOf { it.amount }
+        val dailySum = tariffOrders
+            .filter { it.dailyPayment || it.isOpenEnded }
+            .sumOf { o ->
+                val effStart = maxOf(o.deliveryStart, startDate)
+                val effEnd = minOf(o.deliveryEnd, effectiveEnd)
+                if (effStart > effEnd) 0
+                else sumForRange(o, effStart, effEnd)
+            }
+        val revenue = paidSum + dailySum
+
+        val tariffCalories = portions * kcal
+        val share = tariffCalories.toDouble() / totalSoldCalories
+
+        val pureCost = totalFoodExpenses * share
+        val fullCost = totalExpenses * share
+        val margin = revenue - fullCost
+        val marginPercent = if (revenue > 0) margin / revenue * 100 else 0.0
+        val avgPricePerDay = revenue.toDouble() / portions
+        val costPerDay = fullCost / portions
+
+        TariffStats(
+            calories = kcal,
+            portions = portions,
+            revenue = revenue,
+            pureCost = pureCost,
+            fullCost = fullCost,
+            margin = margin,
+            marginPercent = marginPercent,
+            avgPricePerDay = avgPricePerDay,
+            costPerDay = costPerDay,
+            recommendedPrice20 = costPerDay * 1.20,
+            recommendedPrice30 = costPerDay * 1.30
+        )
     }
 }
