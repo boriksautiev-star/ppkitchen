@@ -287,9 +287,6 @@ fun buildDiscountPeriods(
     return result
 }
 
-/**
- * Проверяет, есть ли у клиента следующий заказ (продление).
- */
 fun hasNextOrder(order: Order, allOrders: List<Order>): Boolean {
     return allOrders.any { other ->
         other.id != order.id &&
@@ -319,7 +316,6 @@ fun OrdersScreen(onOpenCouriers: () -> Unit) {
     var showAssignedCouriers by remember { mutableStateOf(false) }
     var selectedCourierForView by remember { mutableStateOf<Courier?>(null) }
 
-    // Диалог продления (открывается из карточки заказа)
     var renewalClientId by remember { mutableStateOf<Long?>(null) }
     var renewalOrderId by remember { mutableStateOf<Long?>(null) }
 
@@ -332,7 +328,6 @@ fun OrdersScreen(onOpenCouriers: () -> Unit) {
         db.assignmentDao().getForDate(selectedDate)
     }.collectAsState(initial = emptyList())
 
-    // Сортировка: сначала по калориям, затем по имени клиента
     val orders = allOrders.filter { o ->
         o.deliveryStart <= selectedDate &&
                 o.deliveryEnd >= selectedDate &&
@@ -485,7 +480,6 @@ fun OrdersScreen(onOpenCouriers: () -> Unit) {
                         val cid = courierIdFor(o.id)
                         val courier = if (cid > 0L) allCouriers.find { it.id == cid } else null
 
-                        // Проверяем последнюю доставку
                         val isLastDeliveryToday = o.deliveryEnd == selectedDate && !o.isOpenEnded
                         val isLastDeliveryTomorrow = o.deliveryEnd == shiftDate(selectedDate, 1) && !o.isOpenEnded
                         val alreadyExtended = hasNextOrder(o, allOrders)
@@ -512,7 +506,6 @@ fun OrdersScreen(onOpenCouriers: () -> Unit) {
                                 }
                                 Spacer(Modifier.height(4.dp))
 
-                                // Бейджи
                                 Row(
                                     Modifier.fillMaxWidth(),
                                     horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -534,7 +527,6 @@ fun OrdersScreen(onOpenCouriers: () -> Unit) {
                                     }
                                 }
 
-                                // Отдельная строка для бейджа последней доставки — чтобы был заметен
                                 if (isLastDeliveryTomorrow && !alreadyExtended) {
                                     Spacer(Modifier.height(6.dp))
                                     LastDeliveryBadge(text = "⚠️ Завтра последняя доставка")
@@ -654,7 +646,6 @@ fun OrdersScreen(onOpenCouriers: () -> Unit) {
                                     )
                                 }
 
-                                // Кнопка «Спросить о продлении» — только если заказ заканчивается и не продлён
                                 if (!o.isOpenEnded && (isLastDeliveryToday || isLastDeliveryTomorrow) && !alreadyExtended) {
                                     Spacer(Modifier.height(8.dp))
                                     OutlinedButton(
@@ -856,7 +847,6 @@ fun OrdersScreen(onOpenCouriers: () -> Unit) {
         )
     }
 
-    // Диалог продления, открываемый из карточки заказа
     if (renewalClientId != null && renewalOrderId != null) {
         RenewalDialog(
             clientId = renewalClientId!!,
@@ -1265,7 +1255,8 @@ fun DistributionDialog(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
 
-                    if (activeCouriersCount <= 1 && orders.isNotEmpty()) {
+                    // Кнопка «Выделить все / Снять все» — показывается всегда, если есть заказы
+                    if (orders.isNotEmpty()) {
                         TextButton(onClick = {
                             val newVal = !allChecked
                             orders.forEach { checked[it.id] = newVal }
