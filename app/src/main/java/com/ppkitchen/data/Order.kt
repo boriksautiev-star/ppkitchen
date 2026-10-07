@@ -25,5 +25,23 @@ data class Order(
     val courierId: Long = 0L,
     val paid: Boolean = false,
     val paidUntil: String = "",
-    val delivered: Boolean = false
+    val delivered: Boolean = false,
+    val skippedDates: String = ""
 )
+
+/** Разбирает skippedDates в Set<String>. Пример: "2026-10-15|2026-10-18" → Set(2026-10-15, 2026-10-18) */
+fun Order.skippedSet(): Set<String> {
+    if (skippedDates.isBlank()) return emptySet()
+    return skippedDates.split("|")
+        .map { it.trim() }
+        .filter { it.isNotBlank() }
+        .toSet()
+}
+
+/** Проверяет, пропущена ли эта дата в заказе */
+fun Order.isSkipped(day: String): Boolean = day in skippedSet()
+
+/** Сериализует Set<String> в строку для skippedDates */
+fun skippedDatesToString(dates: Set<String>): String {
+    return dates.filter { it.isNotBlank() }.sorted().joinToString("|")
+}

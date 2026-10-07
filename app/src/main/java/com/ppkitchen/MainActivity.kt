@@ -13,6 +13,8 @@ import androidx.core.content.ContextCompat
 import com.ppkitchen.data.ChefReminderScheduler
 import com.ppkitchen.data.ClientEndReminderScheduler
 import com.ppkitchen.data.CookReminderScheduler
+import com.ppkitchen.data.DeliveryReminderScheduler
+import com.ppkitchen.data.SettingsBackup
 import com.ppkitchen.data.SettingsPreferences
 import com.ppkitchen.ui.MainScreen
 import com.ppkitchen.ui.PPKitchenTheme
@@ -20,7 +22,6 @@ import com.ppkitchen.ui.ThemeState
 
 class MainActivity : ComponentActivity() {
 
-    // Задача, которая пришла из уведомления — открыть диалог продления
     private val pendingRenewal = mutableStateOf<Pair<Long, Long>?>(null)
 
     private val requestNotificationPermission =
@@ -28,6 +29,9 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // === 1. Восстановление настроек, если они были потеряны ===
+        SettingsBackup.restoreIfNeeded(this)
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (ContextCompat.checkSelfPermission(
@@ -43,6 +47,10 @@ class MainActivity : ComponentActivity() {
         ChefReminderScheduler.scheduleNext(this)
         ClientEndReminderScheduler.scheduleNext(this)
         CookReminderScheduler.scheduleNext(this)
+        DeliveryReminderScheduler.scheduleNext(this)
+
+        // === 2. Сохранить резервную копию настроек сразу после запуска ===
+        SettingsBackup.backup(this)
 
         handleIntent(intent)
 
@@ -54,6 +62,12 @@ class MainActivity : ComponentActivity() {
                 )
             }
         }
+    }
+
+    override fun onPause() {
+        super.onPause()
+        // === 3. Сохранить настройки при сворачивании — на случай, если что-то пойдёт не так ===
+        SettingsBackup.backup(this)
     }
 
     override fun onNewIntent(intent: Intent) {

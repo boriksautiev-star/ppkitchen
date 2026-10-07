@@ -5,7 +5,15 @@ import android.content.Context
 object SettingsPreferences {
     private const val PREFS = "settings_prefs"
     private const val KEY_COURIER_RATE = "courier_rate_per_point"
-    private const val KEY_AUTO_DELIVERY = "auto_delivery"
+
+    // Авто-расходы на доставку
+    private const val KEY_DELIVERY_REMINDER_ENABLED = "delivery_reminder_enabled"
+    private const val KEY_DELIVERY_REMINDER_HOUR = "delivery_reminder_hour"
+    private const val KEY_DELIVERY_REMINDER_MINUTE = "delivery_reminder_minute"
+    private const val KEY_DELIVERY_REMINDER_NEXT_SCHEDULE = "delivery_reminder_next_schedule"
+
+    // Устаревший ключ — оставлен для обратной совместимости (используется в CostDialog)
+    private const val LEGACY_KEY_AUTO_DELIVERY = "auto_delivery"
 
     // Автоотправка повару
     private const val KEY_CHEF_ENABLED = "chef_reminder_enabled"
@@ -14,7 +22,6 @@ object SettingsPreferences {
     private const val KEY_CHEF_PHONE = "chef_phone"
     private const val KEY_CHEF_MESSENGER = "chef_messenger"
     private const val KEY_CHEF_NEXT_SCHEDULE = "chef_next_schedule"
-    // Режим отправки: 0 = день в день, 1 = за день (по умолчанию — за день)
     private const val KEY_CHEF_DAY_OFFSET = "chef_day_offset"
 
     // Тема
@@ -52,11 +59,44 @@ object SettingsPreferences {
     fun setCourierRate(context: Context, rate: Int) =
         prefs(context).edit().putInt(KEY_COURIER_RATE, rate).apply()
 
-    fun isAutoDelivery(context: Context): Boolean =
-        prefs(context).getBoolean(KEY_AUTO_DELIVERY, true)
+    // === Авто-расходы на доставку ===
+    fun isDeliveryReminderEnabled(context: Context): Boolean {
+        val p = prefs(context)
+        return if (p.contains(KEY_DELIVERY_REMINDER_ENABLED)) {
+            p.getBoolean(KEY_DELIVERY_REMINDER_ENABLED, true)
+        } else {
+            // Fallback: старое значение auto_delivery
+            p.getBoolean(LEGACY_KEY_AUTO_DELIVERY, true)
+        }
+    }
 
-    fun setAutoDelivery(context: Context, auto: Boolean) =
-        prefs(context).edit().putBoolean(KEY_AUTO_DELIVERY, auto).apply()
+    fun setDeliveryReminderEnabled(context: Context, enabled: Boolean) =
+        prefs(context).edit().putBoolean(KEY_DELIVERY_REMINDER_ENABLED, enabled).apply()
+
+    fun getDeliveryReminderHour(context: Context): Int =
+        prefs(context).getInt(KEY_DELIVERY_REMINDER_HOUR, 22)
+
+    fun setDeliveryReminderHour(context: Context, hour: Int) =
+        prefs(context).edit().putInt(KEY_DELIVERY_REMINDER_HOUR, hour.coerceIn(0, 23)).apply()
+
+    fun getDeliveryReminderMinute(context: Context): Int =
+        prefs(context).getInt(KEY_DELIVERY_REMINDER_MINUTE, 0)
+
+    fun setDeliveryReminderMinute(context: Context, minute: Int) =
+        prefs(context).edit().putInt(KEY_DELIVERY_REMINDER_MINUTE, minute.coerceIn(0, 59)).apply()
+
+    fun getDeliveryReminderNextSchedule(context: Context): Long =
+        prefs(context).getLong(KEY_DELIVERY_REMINDER_NEXT_SCHEDULE, 0L)
+
+    fun setDeliveryReminderNextSchedule(context: Context, timestamp: Long) =
+        prefs(context).edit().putLong(KEY_DELIVERY_REMINDER_NEXT_SCHEDULE, timestamp).apply()
+
+    // === Устаревшие методы (для совместимости с CostDialog) ===
+    @Deprecated("Используйте isDeliveryReminderEnabled")
+    fun isAutoDelivery(context: Context): Boolean = isDeliveryReminderEnabled(context)
+
+    @Deprecated("Используйте setDeliveryReminderEnabled")
+    fun setAutoDelivery(context: Context, auto: Boolean) = setDeliveryReminderEnabled(context, auto)
 
     // === Автоотправка повару ===
     fun isChefReminderEnabled(context: Context): Boolean =

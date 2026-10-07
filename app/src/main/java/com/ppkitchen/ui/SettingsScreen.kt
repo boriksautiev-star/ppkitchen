@@ -29,6 +29,7 @@ import com.ppkitchen.data.ChefMessageBuilder
 import com.ppkitchen.data.ChefReminderScheduler
 import com.ppkitchen.data.ClientEndReminderScheduler
 import com.ppkitchen.data.CookReminderScheduler
+import com.ppkitchen.data.DeliveryReminderScheduler
 import com.ppkitchen.data.SettingsPreferences
 import com.ppkitchen.data.AppDatabase
 import kotlinx.coroutines.flow.first
@@ -61,8 +62,21 @@ fun SettingsScreen(
     var courierRateText by remember {
         mutableStateOf(SettingsPreferences.getCourierRate(ctx).toString())
     }
-    var autoDelivery by remember {
-        mutableStateOf(SettingsPreferences.isAutoDelivery(ctx))
+
+    // Авто-расходы на доставку
+    var deliveryReminderEnabled by remember {
+        mutableStateOf(SettingsPreferences.isDeliveryReminderEnabled(ctx))
+    }
+    var deliveryReminderHour by remember {
+        mutableStateOf(SettingsPreferences.getDeliveryReminderHour(ctx).toString())
+    }
+    var deliveryReminderMinute by remember {
+        mutableStateOf(
+            String.format(Locale.US, "%02d", SettingsPreferences.getDeliveryReminderMinute(ctx))
+        )
+    }
+    var deliveryNextScheduleText by remember {
+        mutableStateOf(DeliveryReminderScheduler.getNextScheduleText(ctx))
     }
 
     // Автоотправка повару (список заказов)
@@ -133,6 +147,8 @@ fun SettingsScreen(
         mutableStateOf(CookReminderScheduler.getNextScheduleText(ctx))
     }
 
+    var showMissedExpensesDialog by remember { mutableStateOf(false) }
+
     var phonesToPick by remember { mutableStateOf<List<ContactPhone>?>(null) }
     var pickedContactName by remember { mutableStateOf("") }
 
@@ -167,7 +183,16 @@ fun SettingsScreen(
         SettingsPreferences.setThemeMode(ctx, themeMode)
         ThemeState.update(themeMode)
         SettingsPreferences.setCourierRate(ctx, courierRateText.toIntOrNull() ?: 200)
-        SettingsPreferences.setAutoDelivery(ctx, autoDelivery)
+
+        // Авто-расходы на доставку
+        SettingsPreferences.setDeliveryReminderEnabled(ctx, deliveryReminderEnabled)
+        SettingsPreferences.setDeliveryReminderHour(ctx, deliveryReminderHour.toIntOrNull() ?: 22)
+        SettingsPreferences.setDeliveryReminderMinute(ctx, deliveryReminderMinute.toIntOrNull() ?: 0)
+        if (deliveryReminderEnabled) {
+            DeliveryReminderScheduler.scheduleNext(ctx)
+        } else {
+            DeliveryReminderScheduler.cancel(ctx)
+        }
 
         // Повара
         SettingsPreferences.setCookReminderEnabled(ctx, cookReminderEnabled)
@@ -253,8 +278,8 @@ fun SettingsScreen(
                 }
             }
 
-            // ===== Курьер =====
-            SettingsSection(title = "Курьер") {
+            // ===== Курьер + доставка =====
+            SettingsSection(title = "Курьер и доставка") {
                 OutlinedTextField(
                     value = courierRateText,
                     onValueChange = { courierRateText = it.filter { ch -> ch.isDigit() } },
@@ -262,20 +287,79 @@ fun SettingsScreen(
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
+
                 Row(
                     Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text("Считать доставку автоматически", style = MaterialTheme.typography.bodyMedium)
-                    Switch(checked = autoDelivery, onCheckedChange = { autoDelivery = it })
+                    Text("Авто-расходы на доставку", style = MaterialTheme.typography.bodyMedium)
+                    Switch(
+                        checked = deliveryReminderEnabled,
+                        onCheckedChange = { deliveryReminderEnabled = it }
+                    )
                 }
+
                 Text(
-                    "Если включено — расходы курьера считаются как «порции × ставка». " +
-                            "Категория «Доставка» в расходах игнорируется.",
+                    if (deliveryReminderEnabled)
+                        "Расход создаётся с категорией «Доставка (авто)» вечером. " +
+                                "Сумма = количество доставок за сегодня × ставка."
+                    else
+                        "Авто-расходы выключены. Вносите доставку вручную в категорию «Доставка».",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+
+                if (deliveryReminderEnabled) {
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedTextField(
+                            value = deliveryReminderHour,
+                            onValueChange = {
+                                deliveryReminderHour = it.filter { ch -> ch.isDigit() }.take(2)
+                            },
+                            label = { Text("Час") },
+                            singleLine = true,
+                            modifier = Modifier.weight(1f)
+                        )
+                        OutlinedTextField(
+                            value = deliveryReminderMinute,
+                            onValueChange = {
+                                deliveryReminderMinute = it.filter { ch -> ch.isDigit() }.take(2)
+                            },
+                            label = { Text("Минута") },
+                            singleLine = true,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+
+                    InfoCard(
+                        title = "Следующее срабатывание",
+                        value = deliveryNextScheduleText
+                    )
+
+                    OutlinedButton(
+                        onClick = {
+                            scope.launch {
+                                try {
+                                    saveAll()
+                                    DeliveryReminderScheduler.scheduleNext(ctx)
+                                    deliveryNextScheduleText = DeliveryReminderScheduler.getNextScheduleText(ctx)
+                                    val intent = Intent(ctx, com.ppkitchen.data.DeliveryReminderReceiver::class.java)
+                                    ctx.sendBroadcast(intent)
+                                    showTestResult = "Доставка: перепланировано и запущено"
+                                } catch (e: Exception) {
+                                    showTestResult = "Ошибка: ${e.message}"
+                                }
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Перепланировать и проверить сейчас")
+                    }
+                }
             }
 
             // ===== Повара =====
@@ -360,6 +444,23 @@ fun SettingsScreen(
                 }
             }
 
+            // ===== Восстановление пропущенных расходов =====
+            SettingsSection(title = "Восстановление расходов") {
+                Text(
+                    "Если по каким-то причинам авто-расходы не создались за прошлые дни — " +
+                            "можно восстановить их за период.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                OutlinedButton(
+                    onClick = { showMissedExpensesDialog = true },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("🔄 Восстановить пропущенные расходы")
+                }
+            }
+
             // ===== Автоотправка повару (список заказов) =====
             SettingsSection(title = "Автоотправка списка заказов повару") {
                 Row(
@@ -372,7 +473,6 @@ fun SettingsScreen(
                 }
 
                 if (chefEnabled) {
-                    // Режим отправки: день в день / за день
                     Text("Когда отправлять", style = MaterialTheme.typography.bodyMedium)
                     Row(
                         Modifier.fillMaxWidth(),
@@ -630,7 +730,6 @@ fun SettingsScreen(
                 }
             }
 
-            // ===== Результат теста =====
             showTestResult?.let {
                 Surface(
                     color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
@@ -659,6 +758,10 @@ fun SettingsScreen(
 
             Spacer(Modifier.height(16.dp))
         }
+    }
+
+    if (showMissedExpensesDialog) {
+        MissedExpensesDialog(onDismiss = { showMissedExpensesDialog = false })
     }
 
     phonesToPick?.let { phones ->

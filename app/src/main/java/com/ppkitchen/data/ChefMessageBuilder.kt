@@ -29,12 +29,12 @@ object ChefMessageBuilder {
         return allOrders.filter { o ->
             o.deliveryStart <= date &&
                     o.deliveryEnd >= date &&
-                    isDeliveryDay(o, date)
+                    isDeliveryDay(o, date) &&
+                    !o.isSkipped(date)
         }
     }
 
     fun build(date: String, orders: List<Order>, clients: List<Client>): String {
-        // Сортировка: сначала по калориям, затем по имени
         val sortedOrders = orders.sortedWith(
             compareBy(
                 { it.calories },

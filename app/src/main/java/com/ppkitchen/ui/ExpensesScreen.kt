@@ -33,6 +33,7 @@ val EXPENSE_CATEGORIES = listOf(
     "Зарплата повара (авто)",
     "Аренда",
     "Доставка",
+    "Доставка (авто)",
     "Налоги",
     "Реклама",
     "Прочее"
@@ -249,7 +250,7 @@ fun ExpensesScreen() {
                                     Text(
                                         e.category,
                                         style = MaterialTheme.typography.titleMedium,
-                                        fontWeight = if (e.category == "Зарплата повара (авто)")
+                                        fontWeight = if (e.category.endsWith("(авто)"))
                                             FontWeight.Normal
                                         else
                                             FontWeight.Medium
@@ -259,7 +260,6 @@ fun ExpensesScreen() {
                                         style = MaterialTheme.typography.titleMedium
                                     )
                                 }
-                                // Дата + время
                                 Text(
                                     if (e.time.isNotBlank())
                                         "${formatDisplayDate(e.date)} · ${e.time}"
@@ -405,11 +405,9 @@ fun ExpenseDialog(
                     Text("Дата: $date")
                 }
 
-                // Время
                 OutlinedTextField(
                     value = time,
                     onValueChange = { input ->
-                        // Разрешаем только цифры и двоеточие, максимум 5 символов
                         time = input.filter { ch -> ch.isDigit() || ch == ':' }.take(5)
                     },
                     label = { Text("Время (ЧЧ:ММ)") },
@@ -437,8 +435,6 @@ fun ExpenseDialog(
                 val a = amount.toIntOrNull()
                 if (a == null || a <= 0) return@TextButton
 
-                // Простая валидация времени: если введено — оставляем как есть.
-                // Если пусто — значит пользователь очистил, сохраняем пустым.
                 val normalizedTime = time.trim()
 
                 if (isEdit) {

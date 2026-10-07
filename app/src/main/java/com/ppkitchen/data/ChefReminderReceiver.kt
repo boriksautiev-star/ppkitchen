@@ -36,7 +36,6 @@ class ChefReminderReceiver : BroadcastReceiver() {
                 val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
                 val today = sdf.format(Date())
 
-                // Смещение в днях: 0 = день в день, 1 = за день (по умолчанию)
                 val dayOffset = SettingsPreferences.getChefDayOffset(appContext)
                 val targetDate = shiftDate(today, dayOffset)
 

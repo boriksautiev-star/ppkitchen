@@ -36,6 +36,9 @@ import com.ppkitchen.data.Client
 import com.ppkitchen.data.Courier
 import com.ppkitchen.data.Order
 import com.ppkitchen.data.OrderCourierAssignment
+import com.ppkitchen.data.isSkipped
+import com.ppkitchen.data.skippedDatesToString
+import com.ppkitchen.data.skippedSet
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*
@@ -82,6 +85,7 @@ fun deliveryDaysFromFood(foodDays: Set<Int>): Set<Int> =
     foodDays.map { foodDayToDeliveryDay(it) }.toSet()
 
 fun isDeliveryDay(o: Order, date: String): Boolean {
+    if (o.isSkipped(date)) return false
     val deliveryDays = parseDays(o.deliveryDaysOfWeek)
     if (deliveryDays.isEmpty()) return true
     return dayOfWeekIso(date) in deliveryDays
@@ -140,7 +144,12 @@ fun computeLastDelivery(startDate: String, portions: Int, deliveryDays: Set<Int>
     return sdf.format(cal.time)
 }
 
-fun countDeliveriesBetween(start: String, end: String, deliveryDays: Set<Int>): Int {
+fun countDeliveriesBetween(
+    start: String,
+    end: String,
+    deliveryDays: Set<Int>,
+    skipped: Set<String> = emptySet()
+): Int {
     if (start > end || deliveryDays.isEmpty()) return 0
     val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
     val cal = Calendar.getInstance().apply {
@@ -152,7 +161,8 @@ fun countDeliveriesBetween(start: String, end: String, deliveryDays: Set<Int>): 
     var count = 0
     var iterations = 0
     while (!cal.after(endCal) && iterations < 10000) {
-        if (dayOfWeekIso(sdf.format(cal.time)) in deliveryDays) count++
+        val dayStr = sdf.format(cal.time)
+        if (dayOfWeekIso(dayStr) in deliveryDays && dayStr !in skipped) count++
         cal.add(Calendar.DAY_OF_MONTH, 1)
         iterations++
     }
@@ -163,7 +173,11 @@ fun countDeliveryDays(o: Order, rangeStart: String, rangeEnd: String): Int {
     val effStart = if (o.deliveryStart > rangeStart) o.deliveryStart else rangeStart
     val effEnd = if (o.deliveryEnd < rangeEnd) o.deliveryEnd else rangeEnd
     if (effStart > effEnd) return 0
-    return countDeliveriesBetween(effStart, effEnd, parseDays(o.deliveryDaysOfWeek))
+    return countDeliveriesBetween(
+        effStart, effEnd,
+        parseDays(o.deliveryDaysOfWeek),
+        o.skippedSet()
+    )
 }
 
 fun discountForDay(o: Order, day: String): Int {
@@ -196,12 +210,14 @@ fun sumForRange(o: Order, rangeStart: String, rangeEnd: String): Int {
         time = sdf.parse(effEnd) ?: return 0
     }
     val deliveryDays = parseDays(o.deliveryDaysOfWeek)
+    val skipped = o.skippedSet()
     val base = o.amountPerDay
     var sum = 0
     var iterations = 0
     while (!cal.after(endCal) && iterations < 10000) {
         val dayStr = sdf.format(cal.time)
-        val isDel = deliveryDays.isEmpty() || dayOfWeekIso(dayStr) in deliveryDays
+        val isDel = (deliveryDays.isEmpty() || dayOfWeekIso(dayStr) in deliveryDays)
+                && dayStr !in skipped
         if (isDel) {
             val d = discountForDay(o, dayStr)
             sum += base * (100 - d) / 100
@@ -294,7 +310,6 @@ fun hasNextOrder(order: Order, allOrders: List<Order>): Boolean {
                 other.deliveryStart > order.deliveryEnd
     }
 }
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun OrdersScreen(onOpenCouriers: () -> Unit) {
@@ -318,6 +333,8 @@ fun OrdersScreen(onOpenCouriers: () -> Unit) {
 
     var renewalClientId by remember { mutableStateOf<Long?>(null) }
     var renewalOrderId by remember { mutableStateOf<Long?>(null) }
+
+    var skipDayOrder by remember { mutableStateOf<Order?>(null) }
 
     val allOrders by db.orderDao().getAll().collectAsState(initial = emptyList())
     val clients by db.clientDao().getAll().collectAsState(initial = emptyList())
@@ -661,6 +678,71 @@ fun OrdersScreen(onOpenCouriers: () -> Unit) {
                                         )
                                     }
                                 }
+
+                                // Кнопка «Пропустить дни» — для обычных заказов
+                                if (!o.isOpenEnded) {
+                                    Spacer(Modifier.height(6.dp))
+                                    OutlinedButton(
+                                        onClick = { skipDayOrder = o },
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Text(
+                                            "🚫 Пропустить дни",
+                                            style = MaterialTheme.typography.bodySmall
+                                        )
+                                    }
+                                }
+
+                                // Показать активные пропуски
+                                val skippedList = o.skippedSet().sorted()
+                                if (skippedList.isNotEmpty()) {
+                                    Spacer(Modifier.height(6.dp))
+                                    Surface(
+                                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                                        shape = MaterialTheme.shapes.small,
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Column(Modifier.padding(10.dp)) {
+                                            Text(
+                                                "🚫 Пропущенные дни:",
+                                                style = MaterialTheme.typography.labelMedium,
+                                                fontWeight = FontWeight.Medium
+                                            )
+                                            skippedList.forEach { d ->
+                                                Row(
+                                                    Modifier
+                                                        .fillMaxWidth()
+                                                        .padding(top = 2.dp),
+                                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    Text(
+                                                        formatDisplayDate(d),
+                                                        style = MaterialTheme.typography.bodySmall
+                                                    )
+                                                    TextButton(
+                                                        onClick = {
+                                                            scope.launch {
+                                                                val newSet = skippedList.toSet() - d
+                                                                val updated = o.copy(
+                                                                    skippedDates = skippedDatesToString(newSet)
+                                                                )
+                                                                db.orderDao().update(updated)
+                                                                Toast.makeText(ctx, "Пропуск снят: ${formatDisplayDate(d)}", Toast.LENGTH_SHORT).show()
+                                                            }
+                                                        }
+                                                    ) {
+                                                        Text(
+                                                            "Снять",
+                                                            style = MaterialTheme.typography.labelSmall,
+                                                            color = MaterialTheme.colorScheme.error
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -857,6 +939,25 @@ fun OrdersScreen(onOpenCouriers: () -> Unit) {
             }
         )
     }
+
+    if (skipDayOrder != null) {
+        SkipDaysDialog(
+            order = skipDayOrder!!,
+            onSave = { updatedOrder ->
+                scope.launch {
+                    try {
+                        db.orderDao().update(updatedOrder)
+                        Toast.makeText(ctx, "Пропуск сохранён", Toast.LENGTH_SHORT).show()
+                        skipDayOrder = null
+                    } catch (e: Exception) {
+                        Log.e("SkipDays", "Ошибка", e)
+                        Toast.makeText(ctx, "Ошибка: ${e.message}", Toast.LENGTH_LONG).show()
+                    }
+                }
+            },
+            onCancel = { skipDayOrder = null }
+        )
+    }
 }
 
 @Composable
@@ -871,6 +972,223 @@ fun LastDeliveryBadge(text: String) {
             color = MaterialTheme.colorScheme.onErrorContainer,
             fontWeight = FontWeight.Bold,
             modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun SkipDaysDialog(
+    order: Order,
+    onSave: (Order) -> Unit,
+    onCancel: () -> Unit
+) {
+    val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
+    val today = sdf.format(Date())
+
+    // Начинаем с текущей даты или первой после сегодня
+    val initialFirstDay = remember {
+        val startCheck = if (order.deliveryStart > today) order.deliveryStart else today
+        if (startCheck > order.deliveryEnd) order.deliveryStart else startCheck
+    }
+
+    var firstDay by remember { mutableStateOf(initialFirstDay) }
+    var countText by remember { mutableStateOf("1") }
+    var showDatePicker by remember { mutableStateOf(false) }
+
+    val count = countText.toIntOrNull() ?: 0
+
+    // Вычисляем список дат, которые будут пропущены
+    val datesToSkip = remember(firstDay, count, order) {
+        if (count <= 0) emptyList()
+        else {
+            val sdfLocal = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
+            val deliveryDays = parseDays(order.deliveryDaysOfWeek)
+            val cal = Calendar.getInstance().apply {
+                time = sdfLocal.parse(firstDay) ?: Date()
+            }
+            val result = mutableListOf<String>()
+            var collected = 0
+            var iterations = 0
+            while (collected < count && iterations < 400) {
+                val dayStr = sdfLocal.format(cal.time)
+                val isDelivery = (deliveryDays.isEmpty() || dayOfWeekIso(dayStr) in deliveryDays)
+                val inRange = dayStr >= order.deliveryStart && dayStr <= order.deliveryEnd
+                if (isDelivery && inRange) {
+                    result.add(dayStr)
+                    collected++
+                }
+                cal.add(Calendar.DAY_OF_MONTH, 1)
+                iterations++
+            }
+            result
+        }
+    }
+
+    // Новая дата окончания: сдвигаем на количество пропущенных рабочих дней
+    val newDeliveryEnd = remember(datesToSkip, order) {
+        if (datesToSkip.isEmpty()) order.deliveryEnd
+        else {
+            val sdfLocal = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
+            val deliveryDays = parseDays(order.deliveryDaysOfWeek)
+            val cal = Calendar.getInstance().apply {
+                time = sdfLocal.parse(order.deliveryEnd) ?: return@remember order.deliveryEnd
+            }
+            // Ищем следующие рабочие дни после текущего окончания
+            var added = 0
+            var iterations = 0
+            while (added < datesToSkip.size && iterations < 400) {
+                cal.add(Calendar.DAY_OF_MONTH, 1)
+                val dayStr = sdfLocal.format(cal.time)
+                if (deliveryDays.isEmpty() || dayOfWeekIso(dayStr) in deliveryDays) {
+                    added++
+                }
+                iterations++
+            }
+            sdfLocal.format(cal.time)
+        }
+    }
+
+    val newDateEnd = remember(newDeliveryEnd) { shiftDate(newDeliveryEnd, 1) }
+
+    AlertDialog(
+        onDismissRequest = onCancel,
+        properties = DialogProperties(
+            dismissOnClickOutside = false,
+            dismissOnBackPress = true
+        ),
+        title = { Text("Пропустить дни") },
+        text = {
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 580.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Text(
+                    "Укажите первый день пропуска и количество. Заказ автоматически продлится, " +
+                            "чтобы клиент получил столько же рационов.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                HorizontalDivider()
+
+                Text("Первый день пропуска", style = MaterialTheme.typography.titleSmall)
+
+                OutlinedButton(
+                    onClick = { showDatePicker = true },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(Icons.Default.DateRange, null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Дата: ${formatDisplayDate(firstDay)}")
+                }
+
+                Text("Количество пропусков", style = MaterialTheme.typography.titleSmall)
+
+                OutlinedTextField(
+                    value = countText,
+                    onValueChange = { input ->
+                        countText = input.filter { it.isDigit() }.take(3)
+                    },
+                    label = { Text("Сколько дней") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    listOf(1, 2, 3, 5, 7).forEach { n ->
+                        FilterChip(
+                            selected = count == n,
+                            onClick = { countText = n.toString() },
+                            label = { Text("$n", style = MaterialTheme.typography.bodySmall) },
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                }
+
+                HorizontalDivider()
+
+                // Предпросмотр
+                if (datesToSkip.isNotEmpty()) {
+                    Surface(
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(Modifier.padding(12.dp)) {
+                            Text(
+                                "Будет пропущено:",
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = FontWeight.Medium
+                            )
+                            Spacer(Modifier.height(6.dp))
+                            datesToSkip.forEach { d ->
+                                Text(
+                                    "• ${formatDisplayDate(d)}",
+                                    style = MaterialTheme.typography.bodySmall
+                                )
+                            }
+                            Spacer(Modifier.height(8.dp))
+                            HorizontalDivider()
+                            Spacer(Modifier.height(8.dp))
+                            Row(
+                                Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text(
+                                    "Новая дата окончания:",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Text(
+                                    formatDisplayDate(newDateEnd),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        }
+                    }
+                } else if (count > 0) {
+                    Text(
+                        "В выбранном диапазоне нет подходящих рабочих дней. Проверьте дни доставки заказа.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    if (datesToSkip.isEmpty()) return@TextButton
+                    val newSkipped = order.skippedSet() + datesToSkip.toSet()
+                    val updated = order.copy(
+                        skippedDates = skippedDatesToString(newSkipped),
+                        deliveryEnd = newDeliveryEnd,
+                        dateEnd = newDateEnd
+                    )
+                    onSave(updated)
+                },
+                enabled = datesToSkip.isNotEmpty()
+            ) { Text("Сохранить") }
+        },
+        dismissButton = {
+            TextButton(onClick = onCancel) { Text("Отмена") }
+        }
+    )
+
+    if (showDatePicker) {
+        SimpleDatePickerDialog(
+            initialDate = firstDay,
+            onDateSelected = { firstDay = it; showDatePicker = false },
+            onDismiss = { showDatePicker = false }
         )
     }
 }
@@ -1255,7 +1573,6 @@ fun DistributionDialog(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
 
-                    // Кнопка «Выделить все / Снять все» — показывается всегда, если есть заказы
                     if (orders.isNotEmpty()) {
                         TextButton(onClick = {
                             val newVal = !allChecked
@@ -1589,6 +1906,17 @@ fun daysBetween(start: String, end: String): Int {
         (TimeUnit.MILLISECONDS.toDays(diff) + 1).toInt().coerceAtLeast(0)
     } catch (e: Exception) {
         0
+    }
+}
+
+private fun formatDisplayDate(isoDate: String): String {
+    return try {
+        val inSdf = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
+        val outSdf = SimpleDateFormat("dd.MM.yyyy", Locale.getDefault())
+        val d = inSdf.parse(isoDate)
+        if (d != null) outSdf.format(d) else isoDate
+    } catch (e: Exception) {
+        isoDate
     }
 }
 

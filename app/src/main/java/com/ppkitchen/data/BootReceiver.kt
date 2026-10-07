@@ -11,6 +11,7 @@ class BootReceiver : BroadcastReceiver() {
             ChefReminderScheduler.scheduleNext(ctx)
             ClientEndReminderScheduler.scheduleNext(ctx)
             CookReminderScheduler.scheduleNext(ctx)
+            DeliveryReminderScheduler.scheduleNext(ctx)
         }
     }
 }

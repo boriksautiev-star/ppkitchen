@@ -18,7 +18,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogProperties
 import com.ppkitchen.data.AppDatabase
 import com.ppkitchen.data.Order
-import com.ppkitchen.data.SettingsPreferences
+import com.ppkitchen.data.skippedSet
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -55,35 +55,34 @@ fun FinanceDialog(onDismiss: () -> Unit) {
     var showStartPicker by remember { mutableStateOf(false) }
     var showEndPicker by remember { mutableStateOf(false) }
 
-    // Экран: 0 = главный, 1 = разбивка, 2 = цены, 3 = сценарии, 4 = тарифы
     var screen by remember { mutableStateOf(0) }
 
     val allOrders by db.orderDao().getAll().collectAsState(initial = emptyList())
     val allExpenses by db.expenseDao().getAll().collectAsState(initial = emptyList())
 
-    val courierRate = remember { SettingsPreferences.getCourierRate(ctx) }
-    val autoDelivery = remember { SettingsPreferences.isAutoDelivery(ctx) }
-
     val effectiveEnd = minOf(endDate, today)
-
-    val portions = allOrders.sumOf { o ->
-        val effStart = maxOf(o.deliveryStart, startDate)
-        val effEnd = minOf(o.deliveryEnd, effectiveEnd)
-        if (effStart > effEnd) 0
-        else countDeliveriesBetween(effStart, effEnd, parseDays(o.deliveryDaysOfWeek))
-    }
 
     val soldCalories = allOrders.sumOf { o ->
         val effStart = maxOf(o.deliveryStart, startDate)
         val effEnd = minOf(o.deliveryEnd, effectiveEnd)
         if (effStart > effEnd) 0
-        else countDeliveriesBetween(effStart, effEnd, parseDays(o.deliveryDaysOfWeek)) * o.calories
+        else countDeliveriesBetween(
+            effStart, effEnd,
+            parseDays(o.deliveryDaysOfWeek),
+            o.skippedSet()
+        ) * o.calories
     }
 
     val foodExpenses = allExpenses.filter { it.date >= startDate && it.date <= endDate && it.category == "Закупка" }.sumOf { it.amount }
     val packagingExpenses = allExpenses.filter { it.date >= startDate && it.date <= endDate && it.category == "Упаковка" }.sumOf { it.amount }
-    val deliveryExpenses = if (autoDelivery) portions * courierRate
-    else allExpenses.filter { it.date >= startDate && it.date <= endDate && it.category == "Доставка" }.sumOf { it.amount }
+
+    val deliveryManualExpenses = allExpenses
+        .filter { it.date >= startDate && it.date <= endDate && it.category == "Доставка" }
+        .sumOf { it.amount }
+    val deliveryAutoExpenses = allExpenses
+        .filter { it.date >= startDate && it.date <= endDate && it.category == "Доставка (авто)" }
+        .sumOf { it.amount }
+    val deliveryExpenses = deliveryManualExpenses + deliveryAutoExpenses
 
     val salaryManualExpenses = allExpenses
         .filter { it.date >= startDate && it.date <= endDate && it.category == "Зарплата (ручная)" }
@@ -100,7 +99,7 @@ fun FinanceDialog(onDismiss: () -> Unit) {
         it.date >= startDate && it.date <= endDate &&
                 it.category !in listOf(
             "Закупка", "Упаковка", "Зарплата (ручная)", "Зарплата повара (авто)",
-            "Аренда", "Доставка", "Налоги", "Реклама"
+            "Аренда", "Доставка", "Доставка (авто)", "Налоги", "Реклама"
         )
     }.sumOf { it.amount }
 
@@ -150,12 +149,10 @@ fun FinanceDialog(onDismiss: () -> Unit) {
     val breakEvenClients = if (avgClientCalories > 0) breakEvenCalories / avgClientCalories else 0.0
     val currentClients = if (avgClientCalories > 0) soldCalories / avgClientCalories else 0.0
 
-    // Уникальные калорийности из заказов — для раздела «Цены»
     val uniqueCalories = remember(allOrders) {
         allOrders.map { it.calories }.distinct().sorted()
     }
 
-    // Статистика по тарифам (для экрана «Тарифы»)
     val tariffStats = remember(allOrders, allExpenses, startDate, endDate, effectiveEnd,
         soldCalories, foodExpenses, totalExpenses) {
         computeAllTariffStats(
@@ -206,7 +203,6 @@ fun FinanceDialog(onDismiss: () -> Unit) {
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
 
-                // ===== ГЛАВНЫЙ ЭКРАН =====
                 if (screen == 0) {
 
                     Row(
@@ -415,7 +411,6 @@ fun FinanceDialog(onDismiss: () -> Unit) {
                     }
                 }
 
-                // ===== ЭКРАН 1: РАЗБИВКА РАСХОДОВ =====
                 if (screen == 1) {
                     Text(
                         "Всего расходов: $totalExpenses ₽",
@@ -433,10 +428,12 @@ fun FinanceDialog(onDismiss: () -> Unit) {
 
                     ExpenseRow("Закупка продуктов", foodExpenses, totalExpenses)
                     ExpenseRow("Упаковка", packagingExpenses, totalExpenses)
-                    ExpenseRow(
-                        if (autoDelivery) "Доставка ($portions × $courierRate ₽)" else "Доставка",
-                        deliveryExpenses, totalExpenses
-                    )
+                    if (deliveryManualExpenses > 0) {
+                        ExpenseRow("Доставка (ручная)", deliveryManualExpenses, totalExpenses)
+                    }
+                    if (deliveryAutoExpenses > 0) {
+                        ExpenseRow("Доставка (авто)", deliveryAutoExpenses, totalExpenses)
+                    }
                     if (adExpenses > 0) ExpenseRow("Реклама", adExpenses, totalExpenses)
                     if (otherExpenses > 0) ExpenseRow("Прочее", otherExpenses, totalExpenses)
 
@@ -510,7 +507,6 @@ fun FinanceDialog(onDismiss: () -> Unit) {
                     }
                 }
 
-                // ===== ЭКРАН 2: РЕКОМЕНДОВАННЫЕ ЦЕНЫ =====
                 if (screen == 2) {
                     Text(
                         "Цена за 100 ккал",
@@ -636,7 +632,6 @@ fun FinanceDialog(onDismiss: () -> Unit) {
                     }
                 }
 
-                // ===== ЭКРАН 3: СЦЕНАРИИ =====
                 if (screen == 3) {
                     Text(
                         "Что если поднять цену?",
@@ -716,7 +711,6 @@ fun FinanceDialog(onDismiss: () -> Unit) {
                     }
                 }
 
-                // ===== ЭКРАН 4: ТАРИФЫ =====
                 if (screen == 4) {
                     Text(
                         "Себестоимость по тарифам",
@@ -799,7 +793,6 @@ fun FinanceDialog(onDismiss: () -> Unit) {
     }
 }
 
-/** Карточка одного тарифа */
 @Composable
 private fun TariffCard(stat: TariffStats) {
     val (bgColor, accentColor) = when {
@@ -968,7 +961,6 @@ fun ExpenseRow(label: String, amount: Int, total: Int) {
     }
 }
 
-/** Считает статистику по всем тарифам */
 private fun computeAllTariffStats(
     allOrders: List<Order>,
     startDate: String,
@@ -989,7 +981,11 @@ private fun computeAllTariffStats(
             val effStart = maxOf(o.deliveryStart, startDate)
             val effEnd = minOf(o.deliveryEnd, effectiveEnd)
             if (effStart > effEnd) 0
-            else countDeliveriesBetween(effStart, effEnd, parseDays(o.deliveryDaysOfWeek))
+            else countDeliveriesBetween(
+                effStart, effEnd,
+                parseDays(o.deliveryDaysOfWeek),
+                o.skippedSet()
+            )
         }
 
         if (portions <= 0) return@mapNotNull null

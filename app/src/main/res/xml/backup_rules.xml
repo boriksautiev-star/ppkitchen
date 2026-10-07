@@ -1,13 +1,18 @@
-<?xml version="1.0" encoding="utf-8"?><!--
-   Sample backup rules file; uncomment and customize as necessary.
-   See https://developer.android.com/guide/topics/data/autobackup
-   for details.
-   Note: This file is ignored for devices older than API 31
-   See https://developer.android.com/about/versions/12/backup-restore
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Правила Auto Backup для Android 11 (API 30) и ниже.
+  Указываем, что бэкапить в Google Drive при переустановке.
 -->
 <full-backup-content>
-    <!--
-   <include domain="sharedpref" path="."/>
-   <exclude domain="sharedpref" path="device.xml"/>
--->
+    <!-- База данных — включаем -->
+    <include domain="database" path="." />
+
+    <!-- Настройки (SharedPreferences) — включаем -->
+    <include domain="sharedpref" path="." />
+
+    <!-- Приватные файлы (наш бэкап настроек) — включаем -->
+    <include domain="file" path="." />
+
+    <!-- Кэш не бэкапим — он может быть большим и не имеет смысла -->
+    <exclude domain="external" path="." />
 </full-backup-content>
