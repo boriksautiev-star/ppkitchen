@@ -1,18 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!--
-  Правила бэкапа для Android 12+ (API 31+).
-  - cloud-backup: сохраняется в Google Drive
-  - device-transfer: переносится при переходе на новый телефон
--->
-<data-extraction-rules>
-    <cloud-backup>
-        <include domain="database" path="." />
-        <include domain="sharedpref" path="." />
-        <include domain="file" path="." />
-    </cloud-backup>
-    <device-transfer>
-        <include domain="database" path="." />
-        <include domain="sharedpref" path="." />
-        <include domain="file" path="." />
-    </device-transfer>
-</data-extraction-rules>
+<full-backup-content>
+    <include domain="database" path="." />
+    <include domain="sharedpref" path="." />
+    <include domain="file" path="." />
+</full-backup-content>

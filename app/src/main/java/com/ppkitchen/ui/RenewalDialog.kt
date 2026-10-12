@@ -43,7 +43,6 @@ fun RenewalDialog(
 
             if (c != null && o != null) {
                 val template = SettingsPreferences.getRenewalMessageText(ctx)
-                // В шаблон подставляем ТОЛЬКО имя клиента (без фамилии)
                 messageText = template
                     .replace("{имя}", c.firstName)
                     .replace("{дата}", formatDisplayDate(o.deliveryEnd))
@@ -95,7 +94,6 @@ fun RenewalDialog(
                     val c = client!!
                     val o = order!!
 
-                    // Карточка с данными клиента
                     Surface(
                         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
                         shape = MaterialTheme.shapes.small,
@@ -129,7 +127,6 @@ fun RenewalDialog(
                         }
                     }
 
-                    // Текст сообщения (редактируемый)
                     OutlinedTextField(
                         value = messageText,
                         onValueChange = { messageText = it },
@@ -152,7 +149,6 @@ fun RenewalDialog(
                         style = MaterialTheme.typography.titleSmall
                     )
 
-                    // WhatsApp
                     Button(
                         onClick = {
                             MessengerSender.sendWhatsApp(ctx, c.phone, messageText)
@@ -163,7 +159,6 @@ fun RenewalDialog(
                         Text("📱 WhatsApp")
                     }
 
-                    // Telegram
                     Button(
                         onClick = {
                             MessengerSender.sendTelegram(ctx, messageText)
@@ -173,7 +168,6 @@ fun RenewalDialog(
                         Text("✈️ Telegram")
                     }
 
-                    // SMS
                     OutlinedButton(
                         onClick = {
                             MessengerSender.sendSms(ctx, c.phone, messageText)
@@ -198,14 +192,4 @@ fun RenewalDialog(
             TextButton(onClick = onDismiss) { Text("Закрыть") }
         }
     )
-}
-
-private fun formatDisplayDate(isoDate: String): String {
-    return try {
-        val inSdf = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
-        val outSdf = SimpleDateFormat("dd.MM.yyyy", Locale.getDefault())
-        inSdf.parse(isoDate)?.let { outSdf.format(it) } ?: isoDate
-    } catch (e: Exception) {
-        isoDate
-    }
 }

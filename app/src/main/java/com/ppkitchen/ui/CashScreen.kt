@@ -51,7 +51,6 @@ fun CashScreen() {
                 .padding(pad)
                 .fillMaxSize()
         ) {
-            // --- Итого ---
             Card(
                 Modifier
                     .fillMaxWidth()
@@ -77,7 +76,6 @@ fun CashScreen() {
                 }
             }
 
-            // --- Список ---
             if (allDeposits.isEmpty()) {
                 Box(
                     Modifier
@@ -277,16 +275,5 @@ fun CashDialog(
             onDateSelected = { date = it; showDatePicker = false },
             onDismiss = { showDatePicker = false }
         )
-    }
-}
-
-private fun formatDisplayDate(isoDate: String): String {
-    return try {
-        val inSdf = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
-        val outSdf = SimpleDateFormat("dd.MM.yyyy", Locale.getDefault())
-        val d = inSdf.parse(isoDate)
-        if (d != null) outSdf.format(d) else isoDate
-    } catch (e: Exception) {
-        isoDate
     }
 }

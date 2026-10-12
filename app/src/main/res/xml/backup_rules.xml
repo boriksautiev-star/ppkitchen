@@ -12,7 +12,4 @@
 
     <!-- Приватные файлы (наш бэкап настроек) — включаем -->
     <include domain="file" path="." />
-
-    <!-- Кэш не бэкапим — он может быть большим и не имеет смысла -->
-    <exclude domain="external" path="." />
 </full-backup-content>
