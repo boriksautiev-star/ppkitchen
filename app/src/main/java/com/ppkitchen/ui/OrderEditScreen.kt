@@ -246,6 +246,12 @@ fun OrderDialog(
         comment = src.comment
         dailyPayment = src.dailyPayment
         isOpenEnded = src.isOpenEnded
+        // Количество рационов — только для не-бессрочных заказов.
+        // Считаем реальное число доставок в прошлом заказе с учётом пропусков.
+        if (!src.isOpenEnded) {
+            val count = countDeliveryDays(src, src.deliveryStart, src.deliveryEnd)
+            if (count > 0) portionsText = count.toString()
+        }
         Toast.makeText(ctx, "Данные подставлены из заказа", Toast.LENGTH_SHORT).show()
     }
 
@@ -402,7 +408,6 @@ fun OrderDialog(
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     if (!isEdit) {
-                        // Клиент уже выбран (из карточки клиента) — показываем только карточку клиента
                         if (isClientLocked && preselectedClient != null) {
                             Card(Modifier.fillMaxWidth()) {
                                 Column(Modifier.padding(12.dp)) {
@@ -433,7 +438,6 @@ fun OrderDialog(
                                 }
                             }
                         } else {
-                            // Обычный сценарий — выбор клиента вручную
                             Row(
                                 Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -525,7 +529,6 @@ fun OrderDialog(
                             }
                         }
 
-                        // --- История заказов выбранного клиента ---
                         if (selectedClient != null && clientOrders.isNotEmpty()) {
                             Spacer(Modifier.height(4.dp))
                             Surface(
@@ -593,6 +596,16 @@ fun OrderDialog(
                                                     style = MaterialTheme.typography.bodySmall,
                                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                                 )
+                                                if (!lastOrder.isOpenEnded) {
+                                                    val count = countDeliveryDays(lastOrder, lastOrder.deliveryStart, lastOrder.deliveryEnd)
+                                                    if (count > 0) {
+                                                        Text(
+                                                            "Рационов: $count",
+                                                            style = MaterialTheme.typography.bodySmall,
+                                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                        )
+                                                    }
+                                                }
                                                 val activeDisc = discountForDay(lastOrder, today)
                                                 if (activeDisc > 0) {
                                                     Text(
