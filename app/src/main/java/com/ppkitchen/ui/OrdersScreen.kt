@@ -540,7 +540,6 @@ fun OrdersScreen(onOpenCouriers: () -> Unit) {
 
                                 Spacer(Modifier.height(4.dp))
 
-                                // Метка «Пропуск» — самая заметная
                                 if (isSkippedDay) {
                                     Surface(
                                         color = MaterialTheme.colorScheme.errorContainer,
@@ -579,7 +578,6 @@ fun OrdersScreen(onOpenCouriers: () -> Unit) {
                                     }
                                 }
 
-                                // Бейджи «последняя доставка» — только для реальных доставок
                                 if (!isSkippedDay) {
                                     if (isLastDeliveryTomorrow && !alreadyExtended) {
                                         Spacer(Modifier.height(6.dp))
@@ -899,6 +897,7 @@ fun OrdersScreen(onOpenCouriers: () -> Unit) {
         OrderDialog(
             existingOrder = null,
             clients = clients,
+            allOrders = allOrders,
             onSave = { client, order ->
                 scope.launch {
                     try {
@@ -926,6 +925,7 @@ fun OrdersScreen(onOpenCouriers: () -> Unit) {
         OrderDialog(
             existingOrder = editingOrder,
             clients = clients,
+            allOrders = allOrders,
             onSave = null,
             onUpdate = { updated ->
                 scope.launch {
@@ -1034,8 +1034,6 @@ fun SkipDaysDialog(
 
     val count = countText.toIntOrNull() ?: 0
 
-    // Собираем ровно count дней доставки, начиная с firstDay.
-    // Верхняя граница order.deliveryEnd НЕ используется.
     val datesToSkip = remember(firstDay, count, order) {
         if (count <= 0) emptyList()
         else {
@@ -1061,8 +1059,6 @@ fun SkipDaysDialog(
         }
     }
 
-    // Новая дата окончания: добавляем ровно столько рабочих дней доставки,
-    // сколько пропускаем, но не считаем уже пропущенные (datesToSkip).
     val newDeliveryEnd = remember(datesToSkip, order) {
         if (datesToSkip.isEmpty()) order.deliveryEnd
         else {

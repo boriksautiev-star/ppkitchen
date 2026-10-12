@@ -1,9 +1,11 @@
 package com.ppkitchen.ui
 
+import android.widget.Toast
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -12,6 +14,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.ppkitchen.data.AppDatabase
+import com.ppkitchen.data.Order
 import kotlinx.coroutines.launch
 
 @Composable
@@ -22,11 +25,13 @@ fun ClientDetailScreen(clientId: Long, onBack: () -> Unit) {
 
     val client by db.clientDao().getById(clientId).collectAsState(initial = null)
     val orders by db.orderDao().getByClient(clientId).collectAsState(initial = emptyList())
+    val allOrders by db.orderDao().getAll().collectAsState(initial = emptyList())
     val ordersCount by db.orderDao().ordersCountByClient(clientId).collectAsState(initial = 0)
     val totalPaid by db.orderDao().totalPaidByClient(clientId).collectAsState(initial = 0)
     val totalUnpaid by db.orderDao().totalUnpaidByClient(clientId).collectAsState(initial = 0)
 
     var showEditDialog by remember { mutableStateOf(false) }
+    var showCreateOrder by remember { mutableStateOf(false) }
 
     Scaffold(
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
@@ -35,6 +40,9 @@ fun ClientDetailScreen(clientId: Long, onBack: () -> Unit) {
                 title = client?.fullName ?: "Клиент",
                 onBack = onBack,
                 actions = {
+                    IconButton(onClick = { showCreateOrder = true }) {
+                        Icon(Icons.Default.Add, "Создать заказ")
+                    }
                     IconButton(onClick = { showEditDialog = true }) {
                         Icon(Icons.Default.Edit, "Редактировать")
                     }
@@ -64,6 +72,13 @@ fun ClientDetailScreen(clientId: Long, onBack: () -> Unit) {
                         InfoRow("Адрес", c.address.ifBlank { "—" })
                         InfoRow("Комментарий", c.comment.ifBlank { "—" })
                         InfoRow("Статус", c.status)
+                        Spacer(Modifier.height(4.dp))
+                        Button(
+                            onClick = { showCreateOrder = true },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("➕ Создать заказ")
+                        }
                     }
                 }
             }
@@ -155,6 +170,29 @@ fun ClientDetailScreen(clientId: Long, onBack: () -> Unit) {
                 showEditDialog = false
             },
             onCancel = { showEditDialog = false }
+        )
+    }
+
+    if (showCreateOrder && client != null) {
+        OrderDialog(
+            existingOrder = null,
+            clients = emptyList(),
+            allOrders = allOrders,
+            preselectedClient = client,
+            onSave = { _, order ->
+                scope.launch {
+                    try {
+                        db.orderDao().insert(order.copy(clientId = client!!.id))
+                        Toast.makeText(ctx, "Заказ создан", Toast.LENGTH_SHORT).show()
+                        showCreateOrder = false
+                    } catch (e: Exception) {
+                        Toast.makeText(ctx, "Ошибка: ${e.message}", Toast.LENGTH_LONG).show()
+                    }
+                }
+            },
+            onUpdate = null,
+            onDelete = null,
+            onCancel = { showCreateOrder = false }
         )
     }
 }

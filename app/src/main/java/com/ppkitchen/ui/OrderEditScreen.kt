@@ -30,6 +30,8 @@ import java.util.*
 fun OrderDialog(
     existingOrder: Order?,
     clients: List<Client>,
+    allOrders: List<Order> = emptyList(),
+    preselectedClient: Client? = null,
     onSave: ((Client, Order) -> Unit)?,
     onUpdate: ((Order) -> Unit)?,
     onDelete: ((Order) -> Unit)?,
@@ -40,10 +42,11 @@ fun OrderDialog(
     val today = remember { sdf.format(Date()) }
     val isEdit = existingOrder != null
     val wasOpenEnded = existingOrder?.isOpenEnded == true
+    val isClientLocked = preselectedClient != null
 
     var mode by remember { mutableStateOf("existing") }
     var query by remember { mutableStateOf("") }
-    var selectedClient by remember { mutableStateOf<Client?>(null) }
+    var selectedClient by remember { mutableStateOf<Client?>(preselectedClient) }
 
     var newFirstName by remember { mutableStateOf("") }
     var newLastName by remember { mutableStateOf("") }
@@ -221,6 +224,31 @@ fun OrderDialog(
                 c.phone.contains(query, ignoreCase = true)
     }
 
+    // История заказов выбранного клиента (только при создании).
+    val clientOrders: List<Order> = remember(selectedClient, allOrders, isEdit) {
+        if (isEdit || selectedClient == null) emptyList()
+        else allOrders
+            .filter { it.clientId == selectedClient!!.id }
+            .sortedByDescending { it.deliveryStart }
+    }
+    val lastOrder: Order? = clientOrders.firstOrNull()
+    val previousOrders: List<Order> = clientOrders.drop(1).take(3)
+
+    fun applyFromOrder(src: Order) {
+        calories = src.calories.toString()
+        pricePerDay = src.amountPerDay.toString()
+        val dd = parseDays(src.deliveryDaysOfWeek)
+        skippedFoodDays = if (dd.isEmpty()) emptySet()
+        else ALL_DAYS - foodDaysFromDelivery(dd)
+        val active = discountForDay(src, today)
+        discountText = active.toString()
+        discountFromDate = ""
+        comment = src.comment
+        dailyPayment = src.dailyPayment
+        isOpenEnded = src.isOpenEnded
+        Toast.makeText(ctx, "Данные подставлены из заказа", Toast.LENGTH_SHORT).show()
+    }
+
     fun doSave() {
         val kcal = calories.toIntOrNull()
         if (kcal == null || kcal <= 0) {
@@ -374,80 +402,113 @@ fun OrderDialog(
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     if (!isEdit) {
-                        Row(
-                            Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            FilterChip(
-                                selected = mode == "existing",
-                                onClick = { mode = "existing" },
-                                label = { Text("Существующий") },
-                                modifier = Modifier.weight(1f)
-                            )
-                            FilterChip(
-                                selected = mode == "new",
-                                onClick = { mode = "new" },
-                                label = { Text("Новый клиент") },
-                                modifier = Modifier.weight(1f)
-                            )
-                        }
-
-                        HorizontalDivider()
-
-                        if (mode == "existing") {
-                            OutlinedTextField(
-                                value = query,
-                                onValueChange = { query = it },
-                                label = { Text("Поиск по имени или телефону") },
-                                leadingIcon = { Icon(Icons.Default.Search, null) },
-                                trailingIcon = {
-                                    if (query.isNotEmpty()) {
-                                        IconButton(onClick = { query = "" }) {
-                                            Icon(Icons.Default.Clear, "Очистить")
-                                        }
+                        // Клиент уже выбран (из карточки клиента) — показываем только карточку клиента
+                        if (isClientLocked && preselectedClient != null) {
+                            Card(Modifier.fillMaxWidth()) {
+                                Column(Modifier.padding(12.dp)) {
+                                    Text(
+                                        "Клиент",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    Text(
+                                        preselectedClient.fullName,
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    if (preselectedClient.phone.isNotBlank()) {
+                                        Text(
+                                            preselectedClient.phone,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
                                     }
-                                },
-                                singleLine = true,
-                                modifier = Modifier.fillMaxWidth()
-                            )
+                                    if (preselectedClient.address.isNotBlank()) {
+                                        Text(
+                                            preselectedClient.address,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                            }
+                        } else {
+                            // Обычный сценарий — выбор клиента вручную
+                            Row(
+                                Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                FilterChip(
+                                    selected = mode == "existing",
+                                    onClick = { mode = "existing" },
+                                    label = { Text("Существующий") },
+                                    modifier = Modifier.weight(1f)
+                                )
+                                FilterChip(
+                                    selected = mode == "new",
+                                    onClick = { mode = "new" },
+                                    label = { Text("Новый клиент") },
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
 
-                            if (clients.isEmpty()) {
-                                Text("В базе нет клиентов. Выберите «Новый клиент».")
-                            } else if (filtered.isEmpty()) {
-                                Text("Ничего не найдено")
-                            } else {
-                                Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(8.dp)) {
-                                    Column(
-                                        Modifier
-                                            .fillMaxWidth()
-                                            .heightIn(max = 260.dp)
-                                            .verticalScroll(rememberScrollState())
-                                    ) {
-                                        filtered.forEach { c ->
-                                            val isSelected = selectedClient?.id == c.id
-                                            Row(
-                                                Modifier
-                                                    .fillMaxWidth()
-                                                    .background(
-                                                        if (isSelected) MaterialTheme.colorScheme.primaryContainer
-                                                        else MaterialTheme.colorScheme.surface
+                            HorizontalDivider()
+
+                            if (mode == "existing") {
+                                OutlinedTextField(
+                                    value = query,
+                                    onValueChange = { query = it },
+                                    label = { Text("Поиск по имени или телефону") },
+                                    leadingIcon = { Icon(Icons.Default.Search, null) },
+                                    trailingIcon = {
+                                        if (query.isNotEmpty()) {
+                                            IconButton(onClick = { query = "" }) {
+                                                Icon(Icons.Default.Clear, "Очистить")
+                                            }
+                                        }
+                                    },
+                                    singleLine = true,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+
+                                if (clients.isEmpty()) {
+                                    Text("В базе нет клиентов. Выберите «Новый клиент».")
+                                } else if (filtered.isEmpty()) {
+                                    Text("Ничего не найдено")
+                                } else {
+                                    Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(8.dp)) {
+                                        Column(
+                                            Modifier
+                                                .fillMaxWidth()
+                                                .heightIn(max = 260.dp)
+                                                .verticalScroll(rememberScrollState())
+                                        ) {
+                                            filtered.forEach { c ->
+                                                val isSelected = selectedClient?.id == c.id
+                                                Row(
+                                                    Modifier
+                                                        .fillMaxWidth()
+                                                        .background(
+                                                            if (isSelected) MaterialTheme.colorScheme.primaryContainer
+                                                            else MaterialTheme.colorScheme.surface
+                                                        )
+                                                        .clickable { selectedClient = c }
+                                                        .padding(12.dp),
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    RadioButton(
+                                                        selected = isSelected,
+                                                        onClick = { selectedClient = c }
                                                     )
-                                                    .clickable { selectedClient = c }
-                                                    .padding(12.dp),
-                                                verticalAlignment = Alignment.CenterVertically
-                                            ) {
-                                                RadioButton(
-                                                    selected = isSelected,
-                                                    onClick = { selectedClient = c }
-                                                )
-                                                Spacer(Modifier.width(4.dp))
-                                                Column {
-                                                    Text(
-                                                        c.fullName,
-                                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
-                                                    )
-                                                    if (c.phone.isNotBlank()) {
-                                                        Text(c.phone, style = MaterialTheme.typography.bodySmall)
+                                                    Spacer(Modifier.width(4.dp))
+                                                    Column {
+                                                        Text(
+                                                            c.fullName,
+                                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                                                        )
+                                                        if (c.phone.isNotBlank()) {
+                                                            Text(c.phone, style = MaterialTheme.typography.bodySmall)
+                                                        }
                                                     }
                                                 }
                                             }
@@ -455,13 +516,156 @@ fun OrderDialog(
                                     }
                                 }
                             }
+
+                            if (mode == "new") {
+                                OutlinedTextField(newFirstName, { newFirstName = it }, label = { Text("Имя*") }, modifier = Modifier.fillMaxWidth())
+                                OutlinedTextField(newLastName, { newLastName = it }, label = { Text("Фамилия") }, modifier = Modifier.fillMaxWidth())
+                                OutlinedTextField(newPhone, { newPhone = it }, label = { Text("Телефон") }, modifier = Modifier.fillMaxWidth())
+                                OutlinedTextField(newAddress, { newAddress = it }, label = { Text("Адрес") }, modifier = Modifier.fillMaxWidth())
+                            }
                         }
 
-                        if (mode == "new") {
-                            OutlinedTextField(newFirstName, { newFirstName = it }, label = { Text("Имя*") }, modifier = Modifier.fillMaxWidth())
-                            OutlinedTextField(newLastName, { newLastName = it }, label = { Text("Фамилия") }, modifier = Modifier.fillMaxWidth())
-                            OutlinedTextField(newPhone, { newPhone = it }, label = { Text("Телефон") }, modifier = Modifier.fillMaxWidth())
-                            OutlinedTextField(newAddress, { newAddress = it }, label = { Text("Адрес") }, modifier = Modifier.fillMaxWidth())
+                        // --- История заказов выбранного клиента ---
+                        if (selectedClient != null && clientOrders.isNotEmpty()) {
+                            Spacer(Modifier.height(4.dp))
+                            Surface(
+                                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(Modifier.padding(12.dp)) {
+                                    Text(
+                                        "Прошлые заказы клиента",
+                                        style = MaterialTheme.typography.titleSmall,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Text(
+                                        "Всего: ${clientOrders.size}. Нажмите «Повторить», чтобы подставить данные.",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+
+                                    Spacer(Modifier.height(8.dp))
+
+                                    if (lastOrder != null) {
+                                        Card(
+                                            Modifier.fillMaxWidth(),
+                                            colors = CardDefaults.cardColors(
+                                                containerColor = MaterialTheme.colorScheme.surface
+                                            )
+                                        ) {
+                                            Column(Modifier.padding(12.dp)) {
+                                                Row(
+                                                    Modifier.fillMaxWidth(),
+                                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    Text(
+                                                        "Последний заказ",
+                                                        style = MaterialTheme.typography.labelMedium,
+                                                        color = MaterialTheme.colorScheme.primary,
+                                                        fontWeight = FontWeight.Bold
+                                                    )
+                                                    if (lastOrder.isOpenEnded) {
+                                                        Surface(
+                                                            color = MaterialTheme.colorScheme.secondary,
+                                                            shape = MaterialTheme.shapes.small
+                                                        ) {
+                                                            Text(
+                                                                "Бессрочный",
+                                                                style = MaterialTheme.typography.labelSmall,
+                                                                color = MaterialTheme.colorScheme.onSecondary,
+                                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                                            )
+                                                        }
+                                                    }
+                                                }
+                                                Spacer(Modifier.height(4.dp))
+                                                Text(
+                                                    "${lastOrder.calories} ккал · ${lastOrder.amountPerDay} ₽/день",
+                                                    style = MaterialTheme.typography.bodyMedium,
+                                                    fontWeight = FontWeight.Medium
+                                                )
+                                                val dd = parseDays(lastOrder.deliveryDaysOfWeek)
+                                                val fd = if (dd.isEmpty()) ALL_DAYS else foodDaysFromDelivery(dd)
+                                                Text(
+                                                    "Дни доставки: ${deliveryDaysText(dd)}",
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
+                                                val activeDisc = discountForDay(lastOrder, today)
+                                                if (activeDisc > 0) {
+                                                    Text(
+                                                        "Скидка: $activeDisc%",
+                                                        style = MaterialTheme.typography.bodySmall,
+                                                        color = MaterialTheme.colorScheme.tertiary
+                                                    )
+                                                }
+                                                if (lastOrder.comment.isNotBlank()) {
+                                                    Text(
+                                                        "Комментарий: ${lastOrder.comment}",
+                                                        style = MaterialTheme.typography.bodySmall,
+                                                        color = MaterialTheme.colorScheme.tertiary
+                                                    )
+                                                }
+                                                val skippedText = skippedFoodDaysText(fd)
+                                                if (skippedText != null) {
+                                                    Text(
+                                                        "Не ест: $skippedText",
+                                                        style = MaterialTheme.typography.bodySmall,
+                                                        color = MaterialTheme.colorScheme.error
+                                                    )
+                                                }
+                                                Spacer(Modifier.height(6.dp))
+                                                Button(
+                                                    onClick = { applyFromOrder(lastOrder) },
+                                                    modifier = Modifier.fillMaxWidth()
+                                                ) {
+                                                    Text("↻ Повторить последний")
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    if (previousOrders.isNotEmpty()) {
+                                        Spacer(Modifier.height(8.dp))
+                                        Text(
+                                            "Ещё заказы:",
+                                            style = MaterialTheme.typography.labelMedium,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                        Spacer(Modifier.height(4.dp))
+                                        previousOrders.forEach { prev ->
+                                            Row(
+                                                Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(vertical = 4.dp),
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Column(Modifier.weight(1f)) {
+                                                    Text(
+                                                        "${prev.calories} ккал · ${prev.amountPerDay} ₽/день",
+                                                        style = MaterialTheme.typography.bodySmall,
+                                                        fontWeight = FontWeight.Medium
+                                                    )
+                                                    Text(
+                                                        "${formatDisplayDate(prev.deliveryStart)} — ${formatDisplayDate(prev.deliveryEnd)}",
+                                                        style = MaterialTheme.typography.labelSmall,
+                                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                    )
+                                                }
+                                                TextButton(onClick = { applyFromOrder(prev) }) {
+                                                    Text(
+                                                        "Повторить",
+                                                        style = MaterialTheme.typography.labelMedium
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                         }
 
                         HorizontalDivider()
