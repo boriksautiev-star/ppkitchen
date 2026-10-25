@@ -31,14 +31,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogProperties
-import com.ppkitchen.data.AppDatabase
-import com.ppkitchen.data.Client
-import com.ppkitchen.data.Courier
-import com.ppkitchen.data.Order
-import com.ppkitchen.data.OrderCourierAssignment
-import com.ppkitchen.data.isSkipped
-import com.ppkitchen.data.skippedDatesToString
-import com.ppkitchen.data.skippedSet
+import com.ppkitchen.data.*
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*
@@ -404,13 +397,22 @@ fun OrdersScreen(onOpenCouriers: () -> Unit) {
                                 }
                             )
                             DropdownMenuItem(
-                                text = { Text("Список для повара") },
+                                text = { Text("Список для повара (на день)") },
                                 onClick = {
                                     shareMenuExpanded = false
                                     if (deliveryOrders.isEmpty()) {
                                         Toast.makeText(ctx, "Список пуст", Toast.LENGTH_SHORT).show()
                                     } else {
                                         shareOrders(ctx, selectedDate, deliveryOrders, clients, ShareMode.CHEF)
+                                    }
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Меню для повара на неделю") },
+                                onClick = {
+                                    shareMenuExpanded = false
+                                    scope.launch {
+                                        WeeklyMenuGenerator.generateAndShare(ctx, selectedDate)
                                     }
                                 }
                             )

@@ -62,10 +62,10 @@ interface OrderDao {
     fun uniqueClientsBetween(start: String, end: String): Flow<Int>
 
     @Query("""
-        SELECT calories AS calories, COUNT(*) AS count 
-        FROM orders 
-        WHERE date >= :start AND date <= :end 
-        GROUP BY calories 
+        SELECT calories AS calories, COUNT(*) AS count
+        FROM orders
+        WHERE date >= :start AND date <= :end
+        GROUP BY calories
         ORDER BY calories
     """)
     fun caloriesBreakdown(start: String, end: String): Flow<List<CalorieStat>>
@@ -297,4 +297,51 @@ interface DishCategoryDao {
 
     @Query("UPDATE dishes SET category = :newName WHERE category = :oldName")
     suspend fun renameCategoryInDishes(oldName: String, newName: String)
+}
+
+@Dao
+interface MenuTemplateDao {
+    @Query("SELECT * FROM menu_templates ORDER BY id")
+    fun getAll(): Flow<List<MenuTemplate>>
+
+    @Insert
+    suspend fun insert(template: MenuTemplate): Long
+
+    @Update
+    suspend fun update(template: MenuTemplate)
+
+    @Delete
+    suspend fun delete(template: MenuTemplate)
+}
+
+@Dao
+interface MenuDayDao {
+    @Query("SELECT * FROM menu_days WHERE templateId = :templateId ORDER BY dayNumber")
+    fun getDaysForTemplate(templateId: Long): Flow<List<MenuDay>>
+
+    // ВОТ ЭТОТ МЕТОД МЫ ДОБАВИЛИ:
+    @Query("SELECT * FROM menu_days")
+    suspend fun getAllOnce(): List<MenuDay>
+
+    @Insert
+    suspend fun insert(day: MenuDay): Long
+
+    @Delete
+    suspend fun delete(day: MenuDay)
+}
+
+@Dao
+interface MenuDayDishDao {
+    @Query("SELECT * FROM menu_day_dishes WHERE menuDayId = :menuDayId")
+    fun getDishesForDay(menuDayId: Long): Flow<List<MenuDayDish>>
+
+    // ВОТ ЭТОТ МЕТОД МЫ ДОБАВИЛИ:
+    @Query("SELECT * FROM menu_day_dishes")
+    suspend fun getAllOnce(): List<MenuDayDish>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insert(link: MenuDayDish)
+
+    @Query("DELETE FROM menu_day_dishes WHERE menuDayId = :menuDayId")
+    suspend fun deleteForDay(menuDayId: Long)
 }

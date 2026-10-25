@@ -21,6 +21,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.ppkitchen.data.Client
+import com.ppkitchen.data.MenuTemplate
 import com.ppkitchen.data.Order
 import java.text.SimpleDateFormat
 import java.util.*
@@ -38,11 +39,14 @@ fun OrderDialog(
     onCancel: () -> Unit
 ) {
     val ctx = LocalContext.current
+    val db = remember { com.ppkitchen.data.AppDatabase.get(ctx) }
     val sdf = remember { SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()) }
     val today = remember { sdf.format(Date()) }
     val isEdit = existingOrder != null
     val wasOpenEnded = existingOrder?.isOpenEnded == true
     val isClientLocked = preselectedClient != null
+
+    val menuTemplates by db.menuTemplateDao().getAll().collectAsState(initial = emptyList())
 
     var mode by remember { mutableStateOf("existing") }
     var query by remember { mutableStateOf("") }
@@ -85,6 +89,9 @@ fun OrderDialog(
     }
 
     var comment by remember { mutableStateOf(existingOrder?.comment ?: "") }
+
+    var selectedMenuTemplateId by remember { mutableStateOf(existingOrder?.menuTemplateId ?: 0L) }
+    var showMenuSelector by remember { mutableStateOf(false) }
 
     val initialActiveDiscount = remember(existingOrder) {
         if (existingOrder != null) discountForDay(existingOrder, today) else 0
@@ -252,6 +259,7 @@ fun OrderDialog(
         comment = src.comment
         dailyPayment = src.dailyPayment
         isOpenEnded = src.isOpenEnded
+        selectedMenuTemplateId = src.menuTemplateId // Подставляем меню из прошлого заказа
         if (!src.isOpenEnded) {
             val count = countDeliveryDays(src, src.deliveryStart, src.deliveryEnd)
             if (count > 0) portionsText = count.toString()
@@ -338,7 +346,8 @@ fun OrderDialog(
                 deliveryDaysOfWeek = daysString,
                 isOpenEnded = isOpenEnded,
                 paid = isPaid,
-                paidUntil = debtDate
+                paidUntil = debtDate,
+                menuTemplateId = selectedMenuTemplateId
             )
             onUpdate?.invoke(updated)
         } else {
@@ -386,7 +395,8 @@ fun OrderDialog(
                 deliveryDaysOfWeek = daysString,
                 isOpenEnded = isOpenEnded,
                 paid = isPaid,
-                paidUntil = debtDate
+                paidUntil = debtDate,
+                menuTemplateId = selectedMenuTemplateId
             )
             onSave?.invoke(client, order)
         }
@@ -765,6 +775,34 @@ fun OrderDialog(
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Text("Завершить бессрочный заказ")
+                        }
+                    }
+
+                    // --- БЛОК ВЫБОРА МЕНЮ ---
+                    HorizontalDivider()
+                    Text("Шаблон меню", style = MaterialTheme.typography.titleSmall)
+                    Box {
+                        OutlinedButton(
+                            onClick = { showMenuSelector = true },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            val currentName = menuTemplates.find { it.id == selectedMenuTemplateId }?.name ?: "Без меню (свободный выбор)"
+                            Text("Текущее: $currentName")
+                        }
+                        DropdownMenu(
+                            expanded = showMenuSelector,
+                            onDismissRequest = { showMenuSelector = false }
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("Без меню (свободный выбор)") },
+                                onClick = { selectedMenuTemplateId = 0L; showMenuSelector = false }
+                            )
+                            menuTemplates.forEach { t ->
+                                DropdownMenuItem(
+                                    text = { Text(t.name) },
+                                    onClick = { selectedMenuTemplateId = t.id; showMenuSelector = false }
+                                )
+                            }
                         }
                     }
 

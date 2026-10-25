@@ -12,9 +12,10 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         Client::class, Order::class, Expense::class,
         CashDeposit::class, Courier::class, OrderCourierAssignment::class,
         Cook::class, Ingredient::class, IngredientCategory::class, Dish::class, DishIngredient::class,
-        FoodReference::class, DishCategory::class
+        FoodReference::class, DishCategory::class,
+        MenuTemplate::class, MenuDay::class, MenuDayDish::class
     ],
-    version = 26,
+    version = 27,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -31,6 +32,9 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun dishIngredientDao(): DishIngredientDao
     abstract fun foodReferenceDao(): FoodReferenceDao
     abstract fun dishCategoryDao(): DishCategoryDao
+    abstract fun menuTemplateDao(): MenuTemplateDao
+    abstract fun menuDayDao(): MenuDayDao
+    abstract fun menuDayDishDao(): MenuDayDishDao
 
     companion object {
         @Volatile private var INSTANCE: AppDatabase? = null
@@ -301,6 +305,33 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_26_27 = object : Migration(26, 27) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS menu_templates (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        name TEXT NOT NULL,
+                        cycleLength INTEGER NOT NULL
+                    )
+                """)
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS menu_days (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        templateId INTEGER NOT NULL,
+                        dayNumber INTEGER NOT NULL
+                    )
+                """)
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS menu_day_dishes (
+                        menuDayId INTEGER NOT NULL,
+                        dishId INTEGER NOT NULL,
+                        PRIMARY KEY(menuDayId, dishId)
+                    )
+                """)
+                db.execSQL("ALTER TABLE orders ADD COLUMN menuTemplateId INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
         fun get(context: Context): AppDatabase =
             INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
@@ -315,7 +346,8 @@ abstract class AppDatabase : RoomDatabase() {
                         MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17,
                         MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20,
                         MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23,
-                        MIGRATION_23_24, MIGRATION_24_25, MIGRATION_25_26
+                        MIGRATION_23_24, MIGRATION_24_25, MIGRATION_25_26,
+                        MIGRATION_26_27
                     )
                     .fallbackToDestructiveMigrationOnDowngrade()
                     .build()

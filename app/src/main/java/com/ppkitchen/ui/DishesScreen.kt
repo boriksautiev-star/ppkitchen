@@ -36,6 +36,8 @@ fun DishesScreen() {
     val dishIngredients by db.dishIngredientDao().getAll().collectAsState(initial = emptyList())
     val dishCategories by db.dishCategoryDao().getAll().collectAsState(initial = emptyList())
 
+    var selectedTab by remember { mutableIntStateOf(0) } // 0 = Блюда, 1 = Шаблоны меню
+
     var showIngredientDialog by remember { mutableStateOf(false) }
     var showCreateDish by remember { mutableStateOf(false) }
     var showCategoryManager by remember { mutableStateOf(false) }
@@ -80,50 +82,54 @@ fun DishesScreen() {
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
             CompactTopBar(
-                title = "База блюд",
+                title = if (selectedTab == 0) "База блюд" else "Шаблоны меню",
                 actions = {
-                    IconButton(onClick = { showCategoryManager = true }) {
-                        Icon(Icons.Default.Folder, "Группы блюд")
-                    }
-                    IconButton(onClick = { showIngredientDialog = true }) {
-                        Icon(Icons.Default.ShoppingBasket, "Ингредиенты")
-                    }
-                    Box {
-                        IconButton(onClick = { showSortMenu = true }) {
-                            Icon(Icons.AutoMirrored.Filled.Sort, "Сортировка")
+                    if (selectedTab == 0) {
+                        IconButton(onClick = { showCategoryManager = true }) {
+                            Icon(Icons.Default.Folder, "Группы блюд")
                         }
-                        DropdownMenu(
-                            expanded = showSortMenu,
-                            onDismissRequest = { showSortMenu = false }
-                        ) {
-                            DropdownMenuItem(
-                                text = { Text("По названию (А-Я)") },
-                                onClick = { sortMode = "name"; showSortMenu = false }
-                            )
-                            DropdownMenuItem(
-                                text = { Text("По калориям (возрастание)") },
-                                onClick = { sortMode = "calories_asc"; showSortMenu = false }
-                            )
-                            DropdownMenuItem(
-                                text = { Text("По калориям (убывание)") },
-                                onClick = { sortMode = "calories_desc"; showSortMenu = false }
-                            )
-                            DropdownMenuItem(
-                                text = { Text("По себестоимости (дешевле)") },
-                                onClick = { sortMode = "cost_asc"; showSortMenu = false }
-                            )
-                            DropdownMenuItem(
-                                text = { Text("По себестоимости (дороже)") },
-                                onClick = { sortMode = "cost_desc"; showSortMenu = false }
-                            )
+                        IconButton(onClick = { showIngredientDialog = true }) {
+                            Icon(Icons.Default.ShoppingBasket, "Ингредиенты")
+                        }
+                        Box {
+                            IconButton(onClick = { showSortMenu = true }) {
+                                Icon(Icons.AutoMirrored.Filled.Sort, "Сортировка")
+                            }
+                            DropdownMenu(
+                                expanded = showSortMenu,
+                                onDismissRequest = { showSortMenu = false }
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("По названию (А-Я)") },
+                                    onClick = { sortMode = "name"; showSortMenu = false }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("По калориям (возрастание)") },
+                                    onClick = { sortMode = "calories_asc"; showSortMenu = false }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("По калориям (убывание)") },
+                                    onClick = { sortMode = "calories_desc"; showSortMenu = false }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("По себестоимости (дешевле)") },
+                                    onClick = { sortMode = "cost_asc"; showSortMenu = false }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("По себестоимости (дороже)") },
+                                    onClick = { sortMode = "cost_desc"; showSortMenu = false }
+                                )
+                            }
                         }
                     }
                 }
             )
         },
         floatingActionButton = {
-            FloatingActionButton(onClick = { showCreateDish = true }) {
-                Icon(Icons.Default.Add, "Добавить блюдо")
+            if (selectedTab == 0) {
+                FloatingActionButton(onClick = { showCreateDish = true }) {
+                    Icon(Icons.Default.Add, "Добавить блюдо")
+                }
             }
         }
     ) { pad ->
@@ -132,73 +138,99 @@ fun DishesScreen() {
                 .padding(pad)
                 .fillMaxSize()
         ) {
-            // Фильтры по категориям
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState())
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                FilterChip(
-                    selected = selectedCategory == "Все",
-                    onClick = { selectedCategory = "Все" },
-                    label = { Text("Все") }
+            // Переключатель вкладок
+            TabRow(selectedTabIndex = selectedTab) {
+                Tab(
+                    selected = selectedTab == 0,
+                    onClick = { selectedTab = 0 },
+                    text = { Text("Блюда") }
                 )
-                dishCategories.forEach { cat ->
-                    FilterChip(
-                        selected = selectedCategory == cat.name,
-                        onClick = { selectedCategory = cat.name },
-                        label = { Text(cat.name) }
-                    )
-                }
+                Tab(
+                    selected = selectedTab == 1,
+                    onClick = { selectedTab = 1 },
+                    text = { Text("Меню (Шаблоны)") }
+                )
             }
 
-            if (filteredAndSorted.isEmpty()) {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text("В этой категории блюд нет.", style = MaterialTheme.typography.bodyLarge)
-                }
-            } else {
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    items(filteredAndSorted, key = { it.id }) { dish ->
-                        val cost = calculateCost(dish.id)
+            if (selectedTab == 0) {
+                // --- ЭКРАН БЛЮД ---
+                Column(Modifier.fillMaxSize()) {
+                    // Фильтры по категориям
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState())
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        FilterChip(
+                            selected = selectedCategory == "Все",
+                            onClick = { selectedCategory = "Все" },
+                            label = { Text("Все") }
+                        )
+                        dishCategories.forEach { cat ->
+                            FilterChip(
+                                selected = selectedCategory == cat.name,
+                                onClick = { selectedCategory = cat.name },
+                                label = { Text(cat.name) }
+                            )
+                        }
+                    }
 
-                        Card(
-                            Modifier
-                                .fillMaxWidth()
-                                .clickable { viewingDish = dish }
+                    if (filteredAndSorted.isEmpty()) {
+                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            Text("В этой категории блюд нет.", style = MaterialTheme.typography.bodyLarge)
+                        }
+                    } else {
+                        LazyColumn(
+                            modifier = Modifier.fillMaxSize(),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            Row(
-                                Modifier.padding(16.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Column(Modifier.weight(1f)) {
-                                    Text(dish.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                                    Text(
-                                        "${dish.calories} ккал · Б${dish.protein} Ж${dish.fat} У${dish.carbs}",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
+                            items(filteredAndSorted, key = { it.id }) { dish ->
+                                val cost = calculateCost(dish.id)
+
+                                Card(
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .clickable { viewingDish = dish }
+                                ) {
+                                    Row(
+                                        Modifier.padding(16.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column(Modifier.weight(1f)) {
+                                            Text(dish.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                                            Text(
+                                                "${dish.calories} ккал · Б${dish.protein} Ж${dish.fat} У${dish.carbs}",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                        Text(
+                                            String.format(Locale.US, "%.0f ₽", cost),
+                                            style = MaterialTheme.typography.titleMedium,
+                                            color = MaterialTheme.colorScheme.primary,
+                                            fontWeight = FontWeight.Medium
+                                        )
+                                    }
                                 }
-                                Text(
-                                    String.format(Locale.US, "%.0f ₽", cost),
-                                    style = MaterialTheme.typography.titleMedium,
-                                    color = MaterialTheme.colorScheme.primary,
-                                    fontWeight = FontWeight.Medium
-                                )
                             }
                         }
                     }
+                }
+            } else {
+                // --- ЭКРАН МЕНЮ (ШАБЛОНЫ) ---
+                // Вызываем наш новый экран. Он сам отрисует свой список и FAB.
+                Box(Modifier.fillMaxSize()) {
+                    MenuTemplatesScreen()
                 }
             }
         }
     }
 
+    // Диалоги (показываются поверх, вне зависимости от выбранной вкладки, если их открыли)
     if (showIngredientDialog) {
         IngredientManagerDialog(
             ingredients = ingredients,
