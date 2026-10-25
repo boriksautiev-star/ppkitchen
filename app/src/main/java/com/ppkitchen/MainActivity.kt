@@ -10,15 +10,19 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.mutableStateOf
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.lifecycleScope
+import com.ppkitchen.data.AppDatabase
 import com.ppkitchen.data.ChefReminderScheduler
 import com.ppkitchen.data.ClientEndReminderScheduler
 import com.ppkitchen.data.CookReminderScheduler
 import com.ppkitchen.data.DeliveryReminderScheduler
+import com.ppkitchen.data.FoodReferenceInitializer
 import com.ppkitchen.data.SettingsBackup
 import com.ppkitchen.data.SettingsPreferences
 import com.ppkitchen.ui.MainScreen
 import com.ppkitchen.ui.PPKitchenTheme
 import com.ppkitchen.ui.ThemeState
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
 
@@ -32,6 +36,14 @@ class MainActivity : ComponentActivity() {
 
         // === 1. Восстановление настроек, если они были потеряны ===
         SettingsBackup.restoreIfNeeded(this)
+
+        // === 2. Инициализация заводского справочника БЖУ (если база пуста) ===
+        lifecycleScope.launch {
+            FoodReferenceInitializer.initializeIfNeeded(
+                applicationContext,
+                AppDatabase.get(applicationContext)
+            )
+        }
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (ContextCompat.checkSelfPermission(
@@ -49,7 +61,7 @@ class MainActivity : ComponentActivity() {
         CookReminderScheduler.scheduleNext(this)
         DeliveryReminderScheduler.scheduleNext(this)
 
-        // === 2. Сохранить резервную копию настроек сразу после запуска ===
+        // === 3. Сохранить резервную копию настроек сразу после запуска ===
         SettingsBackup.backup(this)
 
         handleIntent(intent)
@@ -66,7 +78,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onPause() {
         super.onPause()
-        // === 3. Сохранить настройки при сворачивании — на случай, если что-то пойдёт не так ===
+        // === 4. Сохранить настройки при сворачивании — на случай, если что-то пойдёт не так ===
         SettingsBackup.backup(this)
     }
 

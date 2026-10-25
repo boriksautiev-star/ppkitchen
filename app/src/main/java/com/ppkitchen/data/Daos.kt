@@ -28,7 +28,6 @@ interface ClientDao {
 
 @Dao
 interface OrderDao {
-
     @Query("SELECT * FROM orders WHERE deliveryStart <= :date AND deliveryEnd >= :date ORDER BY id")
     fun getForDelivery(date: String): Flow<List<Order>>
 
@@ -190,4 +189,112 @@ interface CookDao {
 
     @Delete
     suspend fun delete(cook: Cook)
+}
+
+@Dao
+interface IngredientDao {
+    @Query("SELECT * FROM ingredients ORDER BY name")
+    fun getAll(): Flow<List<Ingredient>>
+
+    @Insert
+    suspend fun insert(ingredient: Ingredient): Long
+
+    @Update
+    suspend fun update(ingredient: Ingredient)
+
+    @Delete
+    suspend fun delete(ingredient: Ingredient)
+}
+
+@Dao
+interface IngredientCategoryDao {
+    @Query("SELECT * FROM ingredient_categories ORDER BY name")
+    fun getAll(): Flow<List<IngredientCategory>>
+
+    @Insert
+    suspend fun insert(category: IngredientCategory): Long
+
+    @Update
+    suspend fun update(category: IngredientCategory)
+
+    @Delete
+    suspend fun delete(category: IngredientCategory)
+
+    @Query("UPDATE ingredients SET category = :newName WHERE category = :oldName")
+    suspend fun renameCategoryInIngredients(oldName: String, newName: String)
+}
+
+@Dao
+interface DishDao {
+    @Query("SELECT * FROM dishes ORDER BY category, name")
+    fun getAll(): Flow<List<Dish>>
+
+    @Insert
+    suspend fun insert(dish: Dish): Long
+
+    @Update
+    suspend fun update(dish: Dish)
+
+    @Delete
+    suspend fun delete(dish: Dish)
+}
+
+@Dao
+interface DishIngredientDao {
+    @Query("SELECT * FROM dish_ingredients")
+    fun getAll(): Flow<List<DishIngredient>>
+
+    @Query("SELECT * FROM dish_ingredients WHERE dishId = :dishId")
+    fun getForDish(dishId: Long): Flow<List<DishIngredient>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insert(dishIngredient: DishIngredient)
+
+    @Query("DELETE FROM dish_ingredients WHERE dishId = :dishId")
+    suspend fun deleteForDish(dishId: Long)
+}
+
+@Dao
+interface FoodReferenceDao {
+    @Query("SELECT * FROM food_reference WHERE name LIKE '%' || :query || '%' ORDER BY name LIMIT 20")
+    suspend fun search(query: String): List<FoodReference>
+
+    @Query("SELECT * FROM food_reference WHERE name = :name COLLATE NOCASE LIMIT 1")
+    suspend fun findByName(name: String): FoodReference?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertAll(items: List<FoodReference>)
+
+    @Insert
+    suspend fun insert(item: FoodReference): Long
+
+    @Query("SELECT COUNT(*) FROM food_reference")
+    suspend fun count(): Int
+
+    @Query("SELECT COUNT(*) FROM food_reference WHERE source = :source")
+    suspend fun countBySource(source: String): Int
+
+    @Query("DELETE FROM food_reference WHERE source = :source")
+    suspend fun deleteBySource(source: String)
+
+    @Query("SELECT * FROM food_reference ORDER BY name")
+    suspend fun getAllList(): List<FoodReference>
+}
+
+@Dao
+interface DishCategoryDao {
+    @Query("SELECT * FROM dish_categories ORDER BY name")
+    fun getAll(): Flow<List<DishCategory>>
+
+    @Insert
+    suspend fun insert(category: DishCategory): Long
+
+    @Update
+    suspend fun update(category: DishCategory)
+
+    @Delete
+    suspend fun delete(category: DishCategory)
+
+    @Query("UPDATE dishes SET category = :newName WHERE category = :oldName")
+    suspend fun renameCategoryInDishes(oldName: String, newName: String)
 }

@@ -5,6 +5,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AttachMoney
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Restaurant
 import androidx.compose.material.icons.filled.Savings
 import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.material3.*
@@ -28,12 +29,13 @@ fun MainScreen(
         Triple("dashboard", "Отчёт", Icons.Default.Home),
         Triple("clients", "Клиенты", Icons.Default.Person),
         Triple("orders", "Заказы", Icons.Default.ShoppingCart),
+        Triple("dishes", "Блюда", Icons.Default.Restaurant),
         Triple("expenses", "Расходы", Icons.Default.AttachMoney),
         Triple("cash", "Касса", Icons.Default.Savings)
     )
 
     val currentRoute = navController.currentBackStackEntryAsState().value?.destination?.route
-    val showBottomBar = currentRoute in listOf("dashboard", "clients", "orders", "expenses", "cash")
+    val showBottomBar = currentRoute in listOf("dashboard", "clients", "orders", "dishes", "expenses", "cash")
 
     Scaffold(
         bottomBar = {
@@ -50,7 +52,7 @@ fun MainScreen(
                                 }
                             },
                             icon = { Icon(icon, label) },
-                            label = { Text(label) }
+                            label = { Text(label, style = MaterialTheme.typography.labelSmall) }
                         )
                     }
                 }
@@ -77,6 +79,9 @@ fun MainScreen(
                 OrdersScreen(
                     onOpenCouriers = { navController.navigate("couriers") }
                 )
+            }
+            composable("dishes") {
+                DishesScreen()
             }
             composable("expenses") { ExpensesScreen() }
             composable("cash") { CashScreen() }

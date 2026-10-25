@@ -11,9 +11,10 @@ import androidx.sqlite.db.SupportSQLiteDatabase
     entities = [
         Client::class, Order::class, Expense::class,
         CashDeposit::class, Courier::class, OrderCourierAssignment::class,
-        Cook::class
+        Cook::class, Ingredient::class, IngredientCategory::class, Dish::class, DishIngredient::class,
+        FoodReference::class, DishCategory::class
     ],
-    version = 19,
+    version = 26,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -24,6 +25,12 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun courierDao(): CourierDao
     abstract fun assignmentDao(): OrderCourierAssignmentDao
     abstract fun cookDao(): CookDao
+    abstract fun ingredientDao(): IngredientDao
+    abstract fun ingredientCategoryDao(): IngredientCategoryDao
+    abstract fun dishDao(): DishDao
+    abstract fun dishIngredientDao(): DishIngredientDao
+    abstract fun foodReferenceDao(): FoodReferenceDao
+    abstract fun dishCategoryDao(): DishCategoryDao
 
     companion object {
         @Volatile private var INSTANCE: AppDatabase? = null
@@ -196,6 +203,104 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_19_20 = object : Migration(19, 20) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS ingredients (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        name TEXT NOT NULL,
+                        pricePerKg REAL NOT NULL,
+                        unit TEXT NOT NULL
+                    )
+                """)
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS dishes (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        name TEXT NOT NULL,
+                        calories INTEGER NOT NULL,
+                        protein INTEGER NOT NULL,
+                        fat INTEGER NOT NULL,
+                        carbs INTEGER NOT NULL,
+                        category TEXT NOT NULL
+                    )
+                """)
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS dish_ingredients (
+                        dishId INTEGER NOT NULL,
+                        ingredientId INTEGER NOT NULL,
+                        amount REAL NOT NULL,
+                        PRIMARY KEY(dishId, ingredientId)
+                    )
+                """)
+            }
+        }
+
+        private val MIGRATION_20_21 = object : Migration(20, 21) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE ingredients ADD COLUMN category TEXT NOT NULL DEFAULT 'Прочее'")
+            }
+        }
+
+        private val MIGRATION_21_22 = object : Migration(21, 22) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS ingredient_categories (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        name TEXT NOT NULL
+                    )
+                """)
+                db.execSQL("""
+                    INSERT INTO ingredient_categories (name) VALUES 
+                    ('Мясо'), ('Рыба'), ('Овощи'), ('Фрукты'), ('Крупы'), ('Молочка'), ('Специи'), ('Соусы'), ('Прочее')
+                """)
+            }
+        }
+
+        private val MIGRATION_22_23 = object : Migration(22, 23) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE ingredients ADD COLUMN calories REAL NOT NULL DEFAULT 0.0")
+                db.execSQL("ALTER TABLE ingredients ADD COLUMN protein REAL NOT NULL DEFAULT 0.0")
+                db.execSQL("ALTER TABLE ingredients ADD COLUMN fat REAL NOT NULL DEFAULT 0.0")
+                db.execSQL("ALTER TABLE ingredients ADD COLUMN carbs REAL NOT NULL DEFAULT 0.0")
+            }
+        }
+
+        private val MIGRATION_23_24 = object : Migration(23, 24) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS food_reference (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        name TEXT NOT NULL,
+                        calories REAL NOT NULL,
+                        protein REAL NOT NULL,
+                        fat REAL NOT NULL,
+                        carbs REAL NOT NULL
+                    )
+                """)
+            }
+        }
+
+        private val MIGRATION_24_25 = object : Migration(24, 25) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS dish_categories (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        name TEXT NOT NULL
+                    )
+                """)
+                db.execSQL("""
+                    INSERT INTO dish_categories (name) VALUES 
+                    ('Завтрак'), ('Обед'), ('Ужин'), ('Перекус'), ('Напиток'), ('Прочее')
+                """)
+            }
+        }
+
+        private val MIGRATION_25_26 = object : Migration(25, 26) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE food_reference ADD COLUMN source TEXT NOT NULL DEFAULT 'builtin'")
+            }
+        }
+
         fun get(context: Context): AppDatabase =
             INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
@@ -208,7 +313,9 @@ abstract class AppDatabase : RoomDatabase() {
                         MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11,
                         MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14,
                         MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17,
-                        MIGRATION_17_18, MIGRATION_18_19
+                        MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20,
+                        MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23,
+                        MIGRATION_23_24, MIGRATION_24_25, MIGRATION_25_26
                     )
                     .fallbackToDestructiveMigrationOnDowngrade()
                     .build()
