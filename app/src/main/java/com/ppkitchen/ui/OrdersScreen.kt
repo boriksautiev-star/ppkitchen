@@ -91,8 +91,6 @@ fun isDeliveryDay(o: Order, date: String): Boolean {
     return dayOfWeekIso(date) in deliveryDays
 }
 
-// Совпадает ли день недели с графиком доставки, БЕЗ учёта пропусков.
-// Используется, чтобы показать в списке заказ даже в пропущенный день.
 fun isDeliveryDayOfWeek(o: Order, date: String): Boolean {
     val deliveryDays = parseDays(o.deliveryDaysOfWeek)
     if (deliveryDays.isEmpty()) return true
@@ -354,8 +352,6 @@ fun OrdersScreen(onOpenCouriers: () -> Unit) {
         db.assignmentDao().getForDate(selectedDate)
     }.collectAsState(initial = emptyList())
 
-    // Список заказов на выбранную дату. Включает пропущенные дни,
-    // чтобы владелец видел заказ в календаре. Метка «Пропуск» показывается на карточке.
     val orders = allOrders.filter { o ->
         o.deliveryStart <= selectedDate &&
                 o.deliveryEnd >= selectedDate &&
@@ -367,8 +363,6 @@ fun OrdersScreen(onOpenCouriers: () -> Unit) {
         )
     )
 
-    // Только те заказы, которые реально доставляются в этот день (без пропусков).
-    // Именно этот список уходит курьеру, повару, в этикетки и в распределение.
     val deliveryOrders = orders.filter { !it.isSkipped(selectedDate) }
 
     fun courierIdFor(orderId: Long): Long =
@@ -535,6 +529,24 @@ fun OrdersScreen(onOpenCouriers: () -> Unit) {
                                     Text(
                                         "${o.calories} ккал",
                                         style = MaterialTheme.typography.titleMedium
+                                    )
+                                }
+
+                                if (o.protein > 0 || o.fat > 0 || o.carbs > 0) {
+                                    Text(
+                                        "Б${o.protein} · Ж${o.fat} · У${o.carbs}",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+
+                                if (client != null && client.restrictions.isNotBlank()) {
+                                    Spacer(Modifier.height(2.dp))
+                                    Text(
+                                        "🚫 ${client.restrictions}",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.error,
+                                        fontWeight = FontWeight.Medium
                                     )
                                 }
 
@@ -1998,7 +2010,15 @@ private fun shareOrders(
                 val client = clients.find { it.id == o.clientId }
                 val name = client?.fullName ?: "Клиент удалён"
 
-                sb.append("${index + 1}. $name — ${o.calories} ккал\n")
+                sb.append("${index + 1}. $name — ${o.calories} ккал")
+                if (o.protein > 0 || o.fat > 0 || o.carbs > 0) {
+                    sb.append(" (Б${o.protein} Ж${o.fat} У${o.carbs})")
+                }
+                sb.append("\n")
+
+                if (client != null && client.restrictions.isNotBlank()) {
+                    sb.append("   🚫 Ограничения: ${client.restrictions}\n")
+                }
                 if (o.comment.isNotBlank()) {
                     sb.append("   Комментарий: ${o.comment}\n")
                 }

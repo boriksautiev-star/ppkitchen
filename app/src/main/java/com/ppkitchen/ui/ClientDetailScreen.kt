@@ -71,6 +71,9 @@ fun ClientDetailScreen(clientId: Long, onBack: () -> Unit) {
                         InfoRow("Телефон", c.phone.ifBlank { "—" })
                         InfoRow("Адрес", c.address.ifBlank { "—" })
                         InfoRow("Комментарий", c.comment.ifBlank { "—" })
+                        if (c.restrictions.isNotBlank()) {
+                            InfoRow("🚫 Ограничения", c.restrictions, isError = true)
+                        }
                         InfoRow("Статус", c.status)
                         Spacer(Modifier.height(4.dp))
                         Button(
@@ -126,6 +129,13 @@ fun ClientDetailScreen(clientId: Long, onBack: () -> Unit) {
                                 Text(
                                     "${o.calories} ккал",
                                     style = MaterialTheme.typography.titleSmall
+                                )
+                            }
+                            if (o.protein > 0 || o.fat > 0 || o.carbs > 0) {
+                                Text(
+                                    "Б${o.protein} Ж${o.fat} У${o.carbs}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
                             Spacer(Modifier.height(2.dp))
@@ -198,12 +208,16 @@ fun ClientDetailScreen(clientId: Long, onBack: () -> Unit) {
 }
 
 @Composable
-fun InfoRow(label: String, value: String) {
+fun InfoRow(label: String, value: String, isError: Boolean = false) {
     Row(
         Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
         Text(label, style = MaterialTheme.typography.bodyMedium)
-        Text(value, style = MaterialTheme.typography.bodyMedium)
+        Text(
+            value,
+            style = MaterialTheme.typography.bodyMedium,
+            color = if (isError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface
+        )
     }
 }

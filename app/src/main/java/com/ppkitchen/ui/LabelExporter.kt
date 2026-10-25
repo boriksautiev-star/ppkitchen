@@ -10,15 +10,6 @@ import java.io.FileOutputStream
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 
-/**
- * Формирует файл Excel (.xlsx) с данными для этикеток
- * и открывает системный диалог «Поделиться».
- *
- * Первая строка — служебная (NIIMBOT считает её заголовком и пропускает).
- * Реальные данные начинаются со 2-й строки.
- * Колонки: Имя | Калорийность | Адрес | Телефон
- * Сортировка: по калорийности, затем по имени.
- */
 fun exportLabelsToExcelAndShare(
     context: Context,
     date: String,
@@ -27,7 +18,6 @@ fun exportLabelsToExcelAndShare(
 ) {
     if (orders.isEmpty()) return
 
-    // Сортировка: сначала по калориям, затем по имени
     val sortedOrders = orders.sortedWith(
         compareBy(
             { it.calories },
@@ -35,28 +25,27 @@ fun exportLabelsToExcelAndShare(
         )
     )
 
-    // Строки данных
     val rows = sortedOrders.map { order ->
         val client = clients.find { it.id == order.clientId }
+        val bju = if (order.protein > 0 || order.fat > 0 || order.carbs > 0) {
+            "Б${order.protein} Ж${order.fat} У${order.carbs}"
+        } else ""
+
         listOf(
             client?.fullName ?: "Клиент удалён",
             "${order.calories} ккал",
+            bju,
             client?.address?.ifBlank { "—" } ?: "—",
             client?.phone?.ifBlank { "—" } ?: "—"
         )
     }
 
-    // Имя файла: Этикетки_2026-09-15.xlsx
     val fileName = "Этикетки_${date}.xlsx"
-
-    // Куда сохраняем
     val dir = File(context.cacheDir, "labels").apply { mkdirs() }
     val file = File(dir, fileName)
 
-    // Записываем .xlsx
     writeXlsx(file, rows)
 
-    // Отдаём через FileProvider
     val uri = FileProvider.getUriForFile(
         context,
         "${context.packageName}.fileprovider",
@@ -73,17 +62,12 @@ fun exportLabelsToExcelAndShare(
     context.startActivity(Intent.createChooser(intent, "Сохранить или отправить файл с этикетками"))
 }
 
-// ============================================================
-// Генерация .xlsx (минимальный OOXML без сторонних библиотек)
-// ============================================================
-
 private fun writeXlsx(
     file: File,
     dataRows: List<List<String>>
 ) {
     val zip = ZipOutputStream(FileOutputStream(file))
 
-    // 1. [Content_Types].xml
     zip.putNextEntry(ZipEntry("[Content_Types].xml"))
     zip.write(
         """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -96,7 +80,6 @@ private fun writeXlsx(
     )
     zip.closeEntry()
 
-    // 2. _rels/.rels
     zip.putNextEntry(ZipEntry("_rels/.rels"))
     zip.write(
         """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -106,7 +89,6 @@ private fun writeXlsx(
     )
     zip.closeEntry()
 
-    // 3. xl/workbook.xml
     zip.putNextEntry(ZipEntry("xl/workbook.xml"))
     zip.write(
         """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -118,7 +100,6 @@ private fun writeXlsx(
     )
     zip.closeEntry()
 
-    // 4. xl/_rels/workbook.xml.rels
     zip.putNextEntry(ZipEntry("xl/_rels/workbook.xml.rels"))
     zip.write(
         """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -128,22 +109,18 @@ private fun writeXlsx(
     )
     zip.closeEntry()
 
-    // 5. xl/worksheets/sheet1.xml
     val sheetXml = buildString {
         append("""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>""")
         append("""<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">""")
         append("<sheetData>")
 
-        // Служебная первая строка — NIIMBOT считает её заголовком и пропускает.
-        // В ячейках "—", чтобы нигде не появлялись слова «Имя», «Калорийность» и т.д.
         append("""<row r="1">""")
-        repeat(4) { colIdx ->
+        repeat(5) { colIdx ->
             val cellRef = "${columnLetter(colIdx)}1"
             append("""<c r="$cellRef" t="inlineStr"><is><t>—</t></is></c>""")
         }
         append("</row>")
 
-        // Реальные данные — со 2-й строки
         dataRows.forEachIndexed { rowIdx, row ->
             val rowNum = rowIdx + 2
             append("""<row r="$rowNum">""")
@@ -165,9 +142,6 @@ private fun writeXlsx(
     zip.close()
 }
 
-/**
- * Преобразует индекс колонки (0, 1, 2...) в букву Excel (A, B, C...).
- */
 private fun columnLetter(index: Int): String {
     var i = index
     val sb = StringBuilder()
@@ -178,9 +152,6 @@ private fun columnLetter(index: Int): String {
     return sb.toString()
 }
 
-/**
- * Экранирует спецсимволы для XML.
- */
 private fun escapeXml(input: String): String {
     return input
         .replace("&", "&amp;")

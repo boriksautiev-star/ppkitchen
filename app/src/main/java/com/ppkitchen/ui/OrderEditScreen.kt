@@ -52,8 +52,12 @@ fun OrderDialog(
     var newLastName by remember { mutableStateOf("") }
     var newPhone by remember { mutableStateOf("") }
     var newAddress by remember { mutableStateOf("") }
+    var newRestrictions by remember { mutableStateOf("") }
 
     var calories by remember { mutableStateOf((existingOrder?.calories ?: 1200).toString()) }
+    var protein by remember { mutableStateOf(if (existingOrder != null && existingOrder.protein > 0) existingOrder.protein.toString() else "") }
+    var fat by remember { mutableStateOf(if (existingOrder != null && existingOrder.fat > 0) existingOrder.fat.toString() else "") }
+    var carbs by remember { mutableStateOf(if (existingOrder != null && existingOrder.carbs > 0) existingOrder.carbs.toString() else "") }
 
     var pickedFirstDate by remember {
         mutableStateOf(existingOrder?.deliveryStart ?: today)
@@ -224,7 +228,6 @@ fun OrderDialog(
                 c.phone.contains(query, ignoreCase = true)
     }
 
-    // История заказов выбранного клиента (только при создании).
     val clientOrders: List<Order> = remember(selectedClient, allOrders, isEdit) {
         if (isEdit || selectedClient == null) emptyList()
         else allOrders
@@ -236,6 +239,9 @@ fun OrderDialog(
 
     fun applyFromOrder(src: Order) {
         calories = src.calories.toString()
+        protein = if (src.protein > 0) src.protein.toString() else ""
+        fat = if (src.fat > 0) src.fat.toString() else ""
+        carbs = if (src.carbs > 0) src.carbs.toString() else ""
         pricePerDay = src.amountPerDay.toString()
         val dd = parseDays(src.deliveryDaysOfWeek)
         skippedFoodDays = if (dd.isEmpty()) emptySet()
@@ -246,8 +252,6 @@ fun OrderDialog(
         comment = src.comment
         dailyPayment = src.dailyPayment
         isOpenEnded = src.isOpenEnded
-        // Количество рационов — только для не-бессрочных заказов.
-        // Считаем реальное число доставок в прошлом заказе с учётом пропусков.
         if (!src.isOpenEnded) {
             val count = countDeliveryDays(src, src.deliveryStart, src.deliveryEnd)
             if (count > 0) portionsText = count.toString()
@@ -274,6 +278,10 @@ fun OrderDialog(
             Toast.makeText(ctx, "Нельзя убрать все дни", Toast.LENGTH_LONG).show()
             return
         }
+
+        val p = protein.toIntOrNull() ?: 0
+        val f = fat.toIntOrNull() ?: 0
+        val c = carbs.toIntOrNull() ?: 0
 
         val isPaid = if (isOpenEnded || dailyPayment) false else paymentMode == "paid"
         val debtDate = if (!isOpenEnded && !dailyPayment && paymentMode == "debt") paidUntil else ""
@@ -317,6 +325,9 @@ fun OrderDialog(
                 deliveryStart = deliveryStart,
                 deliveryEnd = deliveryEndComputed,
                 calories = kcal,
+                protein = p,
+                fat = f,
+                carbs = c,
                 amount = finalAmount,
                 amountPerDay = finalAmountPerDay,
                 dailyPayment = finalDailyPayment,
@@ -348,6 +359,7 @@ fun OrderDialog(
                     lastName = newLastName.trim(),
                     phone = newPhone.trim(),
                     address = newAddress.trim(),
+                    restrictions = newRestrictions.trim(),
                     comment = "",
                     status = "активен"
                 )
@@ -361,6 +373,9 @@ fun OrderDialog(
                 deliveryStart = deliveryStart,
                 deliveryEnd = deliveryEndComputed,
                 calories = kcal,
+                protein = p,
+                fat = f,
+                carbs = c,
                 amount = finalAmount,
                 amountPerDay = finalAmountPerDay,
                 dailyPayment = finalDailyPayment,
@@ -513,6 +528,13 @@ fun OrderDialog(
                                                         if (c.phone.isNotBlank()) {
                                                             Text(c.phone, style = MaterialTheme.typography.bodySmall)
                                                         }
+                                                        if (c.restrictions.isNotBlank()) {
+                                                            Text(
+                                                                "🚫 ${c.restrictions}",
+                                                                style = MaterialTheme.typography.labelSmall,
+                                                                color = MaterialTheme.colorScheme.error
+                                                            )
+                                                        }
                                                     }
                                                 }
                                             }
@@ -526,6 +548,7 @@ fun OrderDialog(
                                 OutlinedTextField(newLastName, { newLastName = it }, label = { Text("Фамилия") }, modifier = Modifier.fillMaxWidth())
                                 OutlinedTextField(newPhone, { newPhone = it }, label = { Text("Телефон") }, modifier = Modifier.fillMaxWidth())
                                 OutlinedTextField(newAddress, { newAddress = it }, label = { Text("Адрес") }, modifier = Modifier.fillMaxWidth())
+                                OutlinedTextField(newRestrictions, { newRestrictions = it }, label = { Text("Аллергии/Ограничения") }, modifier = Modifier.fillMaxWidth())
                             }
                         }
 
@@ -589,6 +612,13 @@ fun OrderDialog(
                                                     style = MaterialTheme.typography.bodyMedium,
                                                     fontWeight = FontWeight.Medium
                                                 )
+                                                if (lastOrder.protein > 0 || lastOrder.fat > 0 || lastOrder.carbs > 0) {
+                                                    Text(
+                                                        "Б${lastOrder.protein} Ж${lastOrder.fat} У${lastOrder.carbs}",
+                                                        style = MaterialTheme.typography.bodySmall,
+                                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                    )
+                                                }
                                                 val dd = parseDays(lastOrder.deliveryDaysOfWeek)
                                                 val fd = if (dd.isEmpty()) ALL_DAYS else foodDaysFromDelivery(dd)
                                                 Text(
@@ -749,6 +779,33 @@ fun OrderDialog(
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
+
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        OutlinedTextField(
+                            protein,
+                            { input -> protein = input.filter { it.isDigit() }.take(3) },
+                            label = { Text("Белки, г") },
+                            singleLine = true,
+                            modifier = Modifier.weight(1f)
+                        )
+                        OutlinedTextField(
+                            fat,
+                            { input -> fat = input.filter { it.isDigit() }.take(3) },
+                            label = { Text("Жиры, г") },
+                            singleLine = true,
+                            modifier = Modifier.weight(1f)
+                        )
+                        OutlinedTextField(
+                            carbs,
+                            { input -> carbs = input.filter { it.isDigit() }.take(3) },
+                            label = { Text("Углеводы, г") },
+                            singleLine = true,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
 
                     OutlinedTextField(
                         pricePerDay,

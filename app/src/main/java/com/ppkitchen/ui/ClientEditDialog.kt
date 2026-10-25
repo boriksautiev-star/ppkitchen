@@ -10,17 +10,22 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogProperties
 import com.ppkitchen.data.Client
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ClientEditDialog(
     client: Client?,
     onSave: (Client) -> Unit,
     onCancel: () -> Unit
 ) {
+    val isEdit = client != null
+
     var firstName by remember { mutableStateOf(client?.firstName ?: "") }
     var lastName by remember { mutableStateOf(client?.lastName ?: "") }
     var phone by remember { mutableStateOf(client?.phone ?: "") }
     var address by remember { mutableStateOf(client?.address ?: "") }
     var comment by remember { mutableStateOf(client?.comment ?: "") }
+    var restrictions by remember { mutableStateOf(client?.restrictions ?: "") }
+    var status by remember { mutableStateOf(client?.status ?: "активен") }
 
     AlertDialog(
         onDismissRequest = onCancel,
@@ -28,44 +33,80 @@ fun ClientEditDialog(
             dismissOnClickOutside = false,
             dismissOnBackPress = true
         ),
-        title = { Text(if (client == null) "Новый клиент" else "Редактировать клиента") },
+        title = { Text(if (isEdit) "Редактировать клиента" else "Новый клиент") },
         text = {
             Column(
                 Modifier
                     .fillMaxWidth()
                     .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(6.dp)
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                OutlinedTextField(firstName, { firstName = it }, label = { Text("Имя") }, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(lastName, { lastName = it }, label = { Text("Фамилия") }, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(phone, { phone = it }, label = { Text("Телефон") }, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(address, { address = it }, label = { Text("Адрес") }, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(comment, { comment = it }, label = { Text("Комментарий") }, modifier = Modifier.fillMaxWidth())
-
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    "Статус клиента определяется автоматически по его заказам: пока идёт доставка — «активен», после последней доставки — «завершён».",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                OutlinedTextField(
+                    value = firstName,
+                    onValueChange = { firstName = it },
+                    label = { Text("Имя*") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = lastName,
+                    onValueChange = { lastName = it },
+                    label = { Text("Фамилия") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = phone,
+                    onValueChange = { phone = it },
+                    label = { Text("Телефон") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = address,
+                    onValueChange = { address = it },
+                    label = { Text("Адрес") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = restrictions,
+                    onValueChange = { restrictions = it },
+                    label = { Text("Аллергии/Ограничения") },
+                    placeholder = { Text("Например: орехи, лактоза, свинина") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = comment,
+                    onValueChange = { comment = it },
+                    label = { Text("Комментарий") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = status,
+                    onValueChange = { status = it },
+                    label = { Text("Статус") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
                 )
             }
         },
         confirmButton = {
-            TextButton(onClick = {
-                if (firstName.isNotBlank()) {
-                    onSave(
-                        Client(
-                            id = client?.id ?: 0,
-                            firstName = firstName.trim(),
-                            lastName = lastName.trim(),
-                            phone = phone.trim(),
-                            address = address.trim(),
-                            comment = comment.trim(),
-                            status = client?.status ?: "активен" // значение не используется
-                        )
+            TextButton(
+                onClick = {
+                    if (firstName.isBlank()) return@TextButton
+                    val newClient = (client ?: Client(firstName = "")).copy(
+                        firstName = firstName.trim(),
+                        lastName = lastName.trim(),
+                        phone = phone.trim(),
+                        address = address.trim(),
+                        comment = comment.trim(),
+                        restrictions = restrictions.trim(),
+                        status = status.trim()
                     )
-                }
-            }) { Text("Сохранить") }
+                    onSave(newClient)
+                },
+                enabled = firstName.isNotBlank()
+            ) { Text(if (isEdit) "Сохранить" else "Создать") }
         },
         dismissButton = {
             TextButton(onClick = onCancel) { Text("Отмена") }

@@ -11,6 +11,7 @@ data class Client(
     val phone: String = "",
     val address: String = "",
     val comment: String = "",
+    val restrictions: String = "",
     val status: String = "активен"
 ) {
     val fullName: String get() =
