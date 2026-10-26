@@ -6,8 +6,9 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -18,9 +19,11 @@ import androidx.compose.ui.unit.dp
 import com.ppkitchen.data.AppDatabase
 import com.ppkitchen.data.MenuDay
 import com.ppkitchen.data.MenuTemplate
-import com.ppkitchen.data.TestDataGenerator
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 @Composable
 fun MenuTemplatesScreen() {
@@ -33,34 +36,12 @@ fun MenuTemplatesScreen() {
     var showCreateDialog by remember { mutableStateOf(false) }
     var selectedTemplate by remember { mutableStateOf<MenuTemplate?>(null) }
     var templateToDelete by remember { mutableStateOf<MenuTemplate?>(null) }
-    var isGenerating by remember { mutableStateOf(false) }
+    var templateToEdit by remember { mutableStateOf<MenuTemplate?>(null) }
 
     Scaffold(
         floatingActionButton = {
-            Column(
-                horizontalAlignment = Alignment.End,
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                // Кнопка генератора (показываем только если шаблонов еще нет)
-                if (templates.isEmpty()) {
-                    ExtendedFloatingActionButton(
-                        text = { Text(if (isGenerating) "Загрузка..." else "Тест: Меню на 30 дней") },
-                        icon = { Icon(Icons.Default.PlayArrow, null) },
-                        onClick = {
-                            if (!isGenerating) {
-                                isGenerating = true
-                                scope.launch {
-                                    TestDataGenerator.generateMonthMenu(ctx)
-                                    isGenerating = false
-                                }
-                            }
-                        }
-                    )
-                }
-
-                FloatingActionButton(onClick = { showCreateDialog = true }) {
-                    Icon(Icons.Default.Add, "Создать пустое меню")
-                }
+            FloatingActionButton(onClick = { showCreateDialog = true }) {
+                Icon(Icons.Default.Add, "Создать меню")
             }
         }
     ) { pad ->
@@ -68,9 +49,8 @@ fun MenuTemplatesScreen() {
             if (templates.isEmpty()) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Text(
-                        "Шаблонов меню пока нет.\nНажмите + чтобы создать пустой,\nили кнопку ниже для генерации теста.",
-                        style = MaterialTheme.typography.bodyLarge,
-                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                        "Шаблонов меню пока нет.\nНажмите + чтобы создать.",
+                        style = MaterialTheme.typography.bodyLarge
                     )
                 }
             } else {
@@ -91,15 +71,31 @@ fun MenuTemplatesScreen() {
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Column(Modifier.weight(1f)) {
-                                    Text(template.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                                     Text(
-                                        "Длительность цикла: ${template.cycleLength} дней",
+                                        template.name,
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Text(
+                                        "Старт: ${formatDisplayDate(template.startDate)} · Цикл: ${template.cycleLength} дн.",
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                 }
+                                // НОВАЯ КНОПКА РЕДАКТИРОВАНИЯ
+                                IconButton(onClick = { templateToEdit = template }) {
+                                    Icon(
+                                        Icons.Default.Edit,
+                                        "Редактировать",
+                                        tint = MaterialTheme.colorScheme.primary
+                                    )
+                                }
                                 IconButton(onClick = { templateToDelete = template }) {
-                                    Icon(Icons.Default.Delete, "Удалить", tint = MaterialTheme.colorScheme.error)
+                                    Icon(
+                                        Icons.Default.Delete,
+                                        "Удалить",
+                                        tint = MaterialTheme.colorScheme.error
+                                    )
                                 }
                             }
                         }
@@ -121,6 +117,37 @@ fun MenuTemplatesScreen() {
                 showCreateDialog = false
             },
             onDismiss = { showCreateDialog = false }
+        )
+    }
+
+    // ДИАЛОГ РЕДАКТИРОВАНИЯ ШАБЛОНА
+    if (templateToEdit != null) {
+        EditMenuTemplateDialog(
+            template = templateToEdit!!,
+            onSave = { updatedTemplate ->
+                scope.launch {
+                    db.menuTemplateDao().update(updatedTemplate)
+
+                    // Обновляем дни, если изменилась длина цикла
+                    val currentDays = db.menuDayDao().getDaysForTemplate(updatedTemplate.id).first()
+                    val currentCount = currentDays.size
+
+                    if (updatedTemplate.cycleLength > currentCount) {
+                        // Добавляем недостающие дни
+                        for (i in (currentCount + 1)..updatedTemplate.cycleLength) {
+                            db.menuDayDao().insert(MenuDay(templateId = updatedTemplate.id, dayNumber = i))
+                        }
+                    } else if (updatedTemplate.cycleLength < currentCount) {
+                        // Удаляем лишние дни и их блюда
+                        currentDays.filter { it.dayNumber > updatedTemplate.cycleLength }.forEach { day ->
+                            db.menuDayDishDao().deleteForDay(day.id)
+                            db.menuDayDao().delete(day)
+                        }
+                    }
+                }
+                templateToEdit = null
+            },
+            onDismiss = { templateToEdit = null }
         )
     }
 
@@ -161,13 +188,17 @@ fun MenuTemplatesScreen() {
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CreateMenuTemplateDialog(
     onSave: (MenuTemplate) -> Unit,
     onDismiss: () -> Unit
 ) {
+    val sdf = remember { SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()) }
     var name by remember { mutableStateOf("") }
     var cycleLengthText by remember { mutableStateOf("7") }
+    var startDate by remember { mutableStateOf(sdf.format(Date())) }
+    var showDatePicker by remember { mutableStateOf(false) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -186,6 +217,15 @@ fun CreateMenuTemplateDialog(
                     label = { Text("Длина цикла (в днях)") },
                     modifier = Modifier.fillMaxWidth()
                 )
+                OutlinedButton(
+                    onClick = { showDatePicker = true },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(Icons.Default.DateRange, null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Дата старта: $startDate", style = MaterialTheme.typography.bodySmall)
+                }
+                Text("💡 С этой даты начнется 1-й день меню.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         },
         confirmButton = {
@@ -193,7 +233,7 @@ fun CreateMenuTemplateDialog(
                 onClick = {
                     val length = cycleLengthText.toIntOrNull() ?: 0
                     if (name.isNotBlank() && length > 0) {
-                        onSave(MenuTemplate(name = name.trim(), cycleLength = length))
+                        onSave(MenuTemplate(name = name.trim(), cycleLength = length, startDate = startDate))
                     }
                 }
             ) {
@@ -206,4 +246,84 @@ fun CreateMenuTemplateDialog(
             }
         }
     )
+
+    if (showDatePicker) {
+        SimpleDatePickerDialog(
+            initialDate = startDate,
+            onDateSelected = { startDate = it; showDatePicker = false },
+            onDismiss = { showDatePicker = false }
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun EditMenuTemplateDialog(
+    template: MenuTemplate,
+    onSave: (MenuTemplate) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var name by remember { mutableStateOf(template.name) }
+    var cycleLengthText by remember { mutableStateOf(template.cycleLength.toString()) }
+    var startDate by remember { mutableStateOf(template.startDate) }
+    var showDatePicker by remember { mutableStateOf(false) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Редактировать шаблон") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = { Text("Название") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = cycleLengthText,
+                    onValueChange = { cycleLengthText = it.filter { ch -> ch.isDigit() } },
+                    label = { Text("Длина цикла (в днях)") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedButton(
+                    onClick = { showDatePicker = true },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(Icons.Default.DateRange, null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Дата старта: $startDate", style = MaterialTheme.typography.bodySmall)
+                }
+                Text(
+                    "💡 Внимание: изменение длины цикла может удалить старые дни и блюда в них.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.error
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    val length = cycleLengthText.toIntOrNull() ?: 0
+                    if (name.isNotBlank() && length > 0) {
+                        onSave(template.copy(name = name.trim(), cycleLength = length, startDate = startDate))
+                    }
+                }
+            ) {
+                Text("Сохранить")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Отмена")
+            }
+        }
+    )
+
+    if (showDatePicker) {
+        SimpleDatePickerDialog(
+            initialDate = startDate,
+            onDateSelected = { startDate = it; showDatePicker = false },
+            onDismiss = { showDatePicker = false }
+        )
+    }
 }

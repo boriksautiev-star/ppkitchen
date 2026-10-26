@@ -7,7 +7,8 @@ import androidx.room.PrimaryKey
 data class MenuTemplate(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val name: String = "",
-    val cycleLength: Int = 0
+    val cycleLength: Int = 0,
+    val startDate: String = "2026-01-01" // НОВОЕ ПОЛЕ: Дата старта меню
 )
 
 @Entity(tableName = "menu_days")
