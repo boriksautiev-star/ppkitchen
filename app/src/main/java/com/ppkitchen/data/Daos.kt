@@ -345,3 +345,17 @@ interface MenuDayDishDao {
     @Query("DELETE FROM menu_day_dishes WHERE menuDayId = :menuDayId")
     suspend fun deleteForDay(menuDayId: Long)
 }
+@Dao
+interface RationDao {
+    @Query("SELECT * FROM rations ORDER BY calories")
+    fun getAll(): Flow<List<Ration>>
+
+    @Insert
+    suspend fun insert(ration: Ration): Long
+
+    @Update
+    suspend fun update(ration: Ration)
+
+    @Delete
+    suspend fun delete(ration: Ration)
+}

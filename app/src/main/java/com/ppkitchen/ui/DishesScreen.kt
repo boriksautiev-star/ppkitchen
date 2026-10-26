@@ -39,7 +39,7 @@ fun DishesScreen() {
     val dishIngredients by db.dishIngredientDao().getAll().collectAsState(initial = emptyList())
     val dishCategories by db.dishCategoryDao().getAll().collectAsState(initial = emptyList())
 
-    var selectedTab by remember { mutableIntStateOf(0) }
+    var selectedTab by remember { mutableIntStateOf(0) } // 0 = Блюда, 1 = Меню, 2 = Рационы
 
     var showIngredientDialog by remember { mutableStateOf(false) }
     var showCreateDish by remember { mutableStateOf(false) }
@@ -88,7 +88,11 @@ fun DishesScreen() {
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
             CompactTopBar(
-                title = if (selectedTab == 0) "База блюд" else "Шаблоны меню",
+                title = when(selectedTab) {
+                    0 -> "База блюд"
+                    1 -> "Шаблоны меню"
+                    else -> "Рационы (Тарифы)"
+                },
                 actions = {
                     if (selectedTab == 0) {
                         IconButton(onClick = { showCategoryManager = true }) {
@@ -127,10 +131,12 @@ fun DishesScreen() {
         Column(Modifier.padding(pad).fillMaxSize()) {
             TabRow(selectedTabIndex = selectedTab) {
                 Tab(selected = selectedTab == 0, onClick = { selectedTab = 0 }, text = { Text("Блюда") })
-                Tab(selected = selectedTab == 1, onClick = { selectedTab = 1 }, text = { Text("Меню (Шаблоны)") })
+                Tab(selected = selectedTab == 1, onClick = { selectedTab = 1 }, text = { Text("Меню") })
+                Tab(selected = selectedTab == 2, onClick = { selectedTab = 2 }, text = { Text("Рационы") })
             }
 
             if (selectedTab == 0) {
+                // --- ЭКРАН БЛЮД ---
                 Column(Modifier.fillMaxSize()) {
                     Row(
                         Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 8.dp),
@@ -154,39 +160,25 @@ fun DishesScreen() {
                         ) {
                             items(filteredAndSorted, key = { it.id }) { dish ->
                                 val cost = calculateCost(dish.id)
-
-                                Card(
-                                    Modifier.fillMaxWidth().clickable { viewingDish = dish }
-                                ) {
-                                    Row(
-                                        Modifier.padding(16.dp),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
+                                Card(Modifier.fillMaxWidth().clickable { viewingDish = dish }) {
+                                    Row(Modifier.padding(16.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                                         Column(Modifier.weight(1f)) {
                                             Text(dish.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                                            Text(
-                                                "${dish.calories} ккал · Б${dish.protein} Ж${dish.fat} У${dish.carbs}",
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                                            )
+                                            Text("${dish.calories} ккал · Б${dish.protein} Ж${dish.fat} У${dish.carbs}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                         }
-                                        Text(
-                                            String.format(Locale.US, "%.0f ₽", cost),
-                                            style = MaterialTheme.typography.titleMedium,
-                                            color = MaterialTheme.colorScheme.primary,
-                                            fontWeight = FontWeight.Medium
-                                        )
+                                        Text(String.format(Locale.US, "%.0f ₽", cost), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Medium)
                                     }
                                 }
                             }
                         }
                     }
                 }
+            } else if (selectedTab == 1) {
+                // --- ЭКРАН МЕНЮ (ШАБЛОНЫ) ---
+                Box(Modifier.fillMaxSize()) { MenuTemplatesScreen() }
             } else {
-                Box(Modifier.fillMaxSize()) {
-                    MenuTemplatesScreen()
-                }
+                // --- ЭКРАН РАЦИОНОВ ---
+                Box(Modifier.fillMaxSize()) { RationsScreen() }
             }
         }
     }
@@ -225,14 +217,8 @@ fun DishesScreen() {
             ingredients = ingredients,
             dishIngredients = dishIngredients,
             cost = calculateCost(viewingDish!!.id),
-            onEdit = {
-                editingDish = viewingDish
-                viewingDish = null
-            },
-            onDelete = {
-                dishToDelete = viewingDish
-                viewingDish = null
-            },
+            onEdit = { editingDish = viewingDish; viewingDish = null },
+            onDelete = { dishToDelete = viewingDish; viewingDish = null },
             onDismiss = { viewingDish = null }
         )
     }
@@ -241,7 +227,7 @@ fun DishesScreen() {
         AlertDialog(
             onDismissRequest = { dishToDelete = null },
             title = { Text("Удалить блюдо?") },
-            text = { Text("Вы уверены, что хотите удалить «${dishToDelete!!.name}»? Это действие нельзя отменить.") },
+            text = { Text("Вы уверены, что хотите удалить «${dishToDelete!!.name}»?") },
             confirmButton = {
                 TextButton(
                     onClick = {
@@ -250,20 +236,12 @@ fun DishesScreen() {
                                 db.dishIngredientDao().deleteForDish(dishToDelete!!.id)
                                 db.dishDao().delete(dishToDelete!!)
                                 dishToDelete = null
-                            } catch (e: Exception) {
-                                // Обработка ошибки
-                            }
+                            } catch (e: Exception) {}
                         }
                     }
-                ) {
-                    Text("Удалить", color = MaterialTheme.colorScheme.error)
-                }
+                ) { Text("Удалить", color = MaterialTheme.colorScheme.error) }
             },
-            dismissButton = {
-                TextButton(onClick = { dishToDelete = null }) {
-                    Text("Отмена")
-                }
-            }
+            dismissButton = { TextButton(onClick = { dishToDelete = null }) { Text("Отмена") } }
         )
     }
 }
@@ -335,13 +313,10 @@ fun DishDetailScreen(
                                 dIngs.forEach { di ->
                                     val ing = ingredients.find { it.id == di.ingredientId }
                                     if (ing != null) {
-                                        // di.amount - это НЕТТО
                                         val heatLoss = FoodReferenceInitializer.getHeatLossForMethod(ing.name, di.cookingMethod)
-                                        // Выход = Нетто * (1 - Тепловые потери)
                                         val output = if (heatLoss > 0) di.amount * ((100.0 - heatLoss) / 100.0) else di.amount
 
                                         val waste = ing.wastePercent.coerceIn(0.0, 99.9)
-                                        // Брутто = Нетто / (1 - Холодные потери)
                                         val brutto = if (waste > 0) di.amount / ((100.0 - waste) / 100.0) else di.amount
 
                                         val outputStr = String.format(Locale.US, "%.1f", output)

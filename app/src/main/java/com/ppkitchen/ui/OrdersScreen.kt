@@ -341,6 +341,18 @@ fun OrdersScreen(onOpenCouriers: () -> Unit) {
     val activeCouriers by db.courierDao().getActive().collectAsState(initial = emptyList())
     val allCouriers by db.courierDao().getAll().collectAsState(initial = emptyList())
 
+    // ДАННЫЕ ДЛЯ МЕНЮ
+    val menuTemplates by db.menuTemplateDao().getAll().collectAsState(initial = emptyList())
+    val allDishes by db.dishDao().getAll().collectAsState(initial = emptyList())
+    val rations by db.rationDao().getAll().collectAsState(initial = emptyList()) // <-- ДОБАВЛЕНО
+    var allMenuDays by remember { mutableStateOf<List<MenuDay>>(emptyList()) }
+    var allMenuDayDishes by remember { mutableStateOf<List<MenuDayDish>>(emptyList()) }
+
+    LaunchedEffect(Unit) {
+        allMenuDays = db.menuDayDao().getAllOnce()
+        allMenuDayDishes = db.menuDayDishDao().getAllOnce()
+    }
+
     val assignments by remember(selectedDate) {
         db.assignmentDao().getForDate(selectedDate)
     }.collectAsState(initial = emptyList())
@@ -553,6 +565,17 @@ fun OrdersScreen(onOpenCouriers: () -> Unit) {
                                 }
 
                                 Spacer(Modifier.height(4.dp))
+
+                                // БЛОК С МЕНЮ (с передачей рационов)
+                                OrderDayMenuBlock(
+                                    order = o,
+                                    date = selectedDate,
+                                    templates = menuTemplates,
+                                    menuDays = allMenuDays,
+                                    menuDayDishes = allMenuDayDishes,
+                                    allDishes = allDishes,
+                                    rations = rations // <-- ПЕРЕДАЕМ РАЦИОНЫ
+                                )
 
                                 if (isSkippedDay) {
                                     Surface(
@@ -1008,6 +1031,61 @@ fun OrdersScreen(onOpenCouriers: () -> Unit) {
             },
             onCancel = { skipDayOrder = null }
         )
+    }
+}
+
+// --- КОМПОНЕНТ ДЛЯ ОТОБРАЖЕНИЯ МЕНЮ В ЗАКАЗЕ ---
+@Composable
+fun OrderDayMenuBlock(
+    order: Order,
+    date: String,
+    templates: List<MenuTemplate>,
+    menuDays: List<MenuDay>,
+    menuDayDishes: List<MenuDayDish>,
+    allDishes: List<Dish>,
+    rations: List<Ration> // <-- ПРИНИМАЕМ РАЦИОНЫ
+) {
+    if (order.menuTemplateId == 0L) return
+
+    val template = templates.find { it.id == order.menuTemplateId }
+    if (template == null) return
+
+    // Находим рацион, привязанный к заказу
+    val ration = rations.find { it.id == order.rationId }
+
+    val dishes = MenuCalculator.getDishesForDate(
+        order = order,
+        targetDate = date,
+        template = template,
+        menuDays = menuDays.filter { it.templateId == template.id },
+        allMenuDayDishes = menuDayDishes,
+        allDishes = allDishes,
+        ration = ration // <-- ПЕРЕДАЕМ В КАЛЬКУЛЯТОР
+    )
+
+    if (dishes.isNotEmpty()) {
+        Surface(
+            color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.3f),
+            shape = RoundedCornerShape(8.dp),
+            modifier = Modifier.fillMaxWidth().padding(top = 6.dp, bottom = 6.dp)
+        ) {
+            Column(Modifier.padding(10.dp)) {
+                Text(
+                    "Меню на $date (${template.name}${if (ration != null) " · ${ration.name}" else ""}):",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.secondary
+                )
+                Spacer(Modifier.height(4.dp))
+                dishes.forEach { dish ->
+                    Text(
+                        "• ${dish.name}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                }
+            }
+        }
     }
 }
 

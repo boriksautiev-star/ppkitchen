@@ -30,7 +30,8 @@ data class Order(
     val paidUntil: String = "",
     val delivered: Boolean = false,
     val skippedDates: String = "",
-    val menuTemplateId: Long = 0
+    val menuTemplateId: Long = 0,
+    val rationId: Long = 0
 )
 
 /** Разбирает skippedDates в Set. Пример: "2026-10-15|2026-10-18" → Set(2026-10-15, 2026-10-18) */
