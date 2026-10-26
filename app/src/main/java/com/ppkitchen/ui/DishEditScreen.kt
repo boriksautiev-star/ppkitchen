@@ -1,11 +1,13 @@
 package com.ppkitchen.ui
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -19,6 +21,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.ppkitchen.data.*
 import kotlinx.coroutines.launch
+import java.util.Locale
 import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -48,30 +51,48 @@ fun DishEditScreen(
     var showDishCategoryMenu by remember { mutableStateOf(false) }
 
     val dishIngs = remember { mutableStateListOf<DishIngredient>().apply { addAll(existingDishIngredients) } }
+
+    // ИНИЦИАЛИЗАЦИЯ: Переводим сохраненное НЕТТО в ВЫХОД для отображения пользователю
     val amountStrings = remember { mutableStateMapOf<Long, String>().apply {
-        existingDishIngredients.forEach { put(it.ingredientId, if (it.amount > 0) it.amount.toString() else "") }
+        existingDishIngredients.forEach { di ->
+            val ing = ingredients.find { it.id == di.ingredientId }
+            if (ing != null) {
+                val heatLoss = FoodReferenceInitializer.getHeatLossForMethod(ing.name, di.cookingMethod)
+                val output = if (heatLoss > 0) di.amount * ((100.0 - heatLoss) / 100.0) else di.amount
+                put(di.ingredientId, if (output > 0) String.format(Locale.US, "%.1f", output) else "")
+            } else {
+                put(di.ingredientId, if (di.amount > 0) di.amount.toString() else "")
+            }
+        }
     }}
 
     var showMultiIngredientPicker by remember { mutableStateOf(false) }
 
-    val autoCalcData = remember(dishIngs.toList(), amountStrings.toMap()) {
+    val autoCalcData = remember(dishIngs.toList(), amountStrings.toMap(), ingredients) {
         var totalKcal = 0.0
         var totalProt = 0.0
         var totalFat = 0.0
         var totalCarb = 0.0
+        var totalOutputWeight = 0.0
 
         dishIngs.forEach { di ->
             val ing = ingredients.find { it.id == di.ingredientId }
-            val amount = amountStrings[di.ingredientId]?.toDoubleOrNull() ?: 0.0
-            if (ing != null && amount > 0) {
-                val multiplier = if (ing.unit == "шт") amount else amount / 100.0
+            val output = amountStrings[di.ingredientId]?.toDoubleOrNull() ?: 0.0
+            if (ing != null && output > 0) {
+                // БЖУ считаем по НЕТТО (переводим из Выхода)
+                val heatLoss = FoodReferenceInitializer.getHeatLossForMethod(ing.name, di.cookingMethod)
+                val netto = if (heatLoss > 0) output / ((100.0 - heatLoss) / 100.0) else output
+
+                val multiplier = if (ing.unit == "шт") netto else netto / 100.0
                 totalKcal += ing.calories * multiplier
                 totalProt += ing.protein * multiplier
                 totalFat += ing.fat * multiplier
                 totalCarb += ing.carbs * multiplier
+
+                totalOutputWeight += output
             }
         }
-        listOf(totalKcal, totalProt, totalFat, totalCarb)
+        listOf(totalKcal, totalProt, totalFat, totalCarb, totalOutputWeight)
     }
 
     LaunchedEffect(autoCalcData) {
@@ -122,9 +143,21 @@ fun DishEditScreen(
 
                                     db.dishIngredientDao().deleteForDish(dishId)
                                     dishIngs.forEach { di ->
-                                        val amt = amountStrings[di.ingredientId]?.toDoubleOrNull() ?: 0.0
-                                        if (amt > 0) {
-                                            db.dishIngredientDao().insert(DishIngredient(dishId = dishId, ingredientId = di.ingredientId, amount = amt))
+                                        val output = amountStrings[di.ingredientId]?.toDoubleOrNull() ?: 0.0
+                                        val ing = ingredients.find { it.id == di.ingredientId }
+                                        if (ing != null && output > 0) {
+                                            // ПЕРЕВОДИМ ВЫХОД В НЕТТО ДЛЯ СОХРАНЕНИЯ В БАЗУ
+                                            val heatLoss = FoodReferenceInitializer.getHeatLossForMethod(ing.name, di.cookingMethod)
+                                            val amtNetto = if (heatLoss > 0) output / ((100.0 - heatLoss) / 100.0) else output
+
+                                            db.dishIngredientDao().insert(
+                                                DishIngredient(
+                                                    dishId = dishId,
+                                                    ingredientId = di.ingredientId,
+                                                    amount = amtNetto, // Сохраняем НЕТТО
+                                                    cookingMethod = di.cookingMethod
+                                                )
+                                            )
                                         }
                                     }
                                     onDismiss()
@@ -135,15 +168,11 @@ fun DishEditScreen(
                 )
 
                 Column(
-                    Modifier
-                        .fillMaxSize()
-                        .verticalScroll(rememberScrollState())
-                        .padding(16.dp),
+                    Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     OutlinedTextField(name, { name = it }, label = { Text("Название блюда*") }, modifier = Modifier.fillMaxWidth())
 
-                    // Выбор группы блюда
                     Box {
                         OutlinedButton(onClick = { showDishCategoryMenu = true }, modifier = Modifier.fillMaxWidth()) {
                             Text("Группа блюда: $category")
@@ -161,20 +190,34 @@ fun DishEditScreen(
                         OutlinedTextField(fat, { input -> fat = input.filter { it.isDigit() } }, label = { Text("Ж") }, modifier = Modifier.weight(1f))
                         OutlinedTextField(carbs, { input -> carbs = input.filter { it.isDigit() } }, label = { Text("У") }, modifier = Modifier.weight(1f))
                     }
-                    Text("💡 БЖУ рассчитывается автоматически. Можно изменить вручную.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 
-                    if (hasMissingBju) {
+                    if (autoCalcData[4] > 0) {
                         Surface(
-                            color = MaterialTheme.colorScheme.errorContainer,
+                            color = MaterialTheme.colorScheme.primaryContainer,
                             shape = MaterialTheme.shapes.small,
                             modifier = Modifier.fillMaxWidth()
                         ) {
-                            Text(
-                                "⚠️ У одного или нескольких ингредиентов не заполнены БЖУ. Расчет может быть неточным.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onErrorContainer,
-                                modifier = Modifier.padding(8.dp)
-                            )
+                            Row(
+                                Modifier.padding(12.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("Выход готового блюда:", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+                                Text(
+                                    "${String.format(Locale.US, "%.1f", autoCalcData[4])} г",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        }
+                    }
+
+                    Text("💡 Введите вес готового продукта (в тарелке). Программа сама рассчитает, сколько нужно взять сырья (Брутто).", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+
+                    if (hasMissingBju) {
+                        Surface(color = MaterialTheme.colorScheme.errorContainer, shape = MaterialTheme.shapes.small, modifier = Modifier.fillMaxWidth()) {
+                            Text("⚠️ У одного или нескольких ингредиентов не заполнены БЖУ. Расчет может быть неточным.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onErrorContainer, modifier = Modifier.padding(8.dp))
                         }
                     }
 
@@ -196,41 +239,102 @@ fun DishEditScreen(
                     if (dishIngs.isEmpty()) {
                         Text("Ингредиенты не добавлены. Нажмите «Добавить».", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     } else {
-                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
                             dishIngs.forEach { di ->
                                 val ing = ingredients.find { it.id == di.ingredientId }
                                 if (ing != null) {
-                                    Row(
-                                        Modifier.fillMaxWidth(),
-                                        verticalAlignment = Alignment.CenterVertically
+                                    val output = amountStrings[ing.id]?.toDoubleOrNull() ?: 0.0
+
+                                    // Считаем НЕТТО и БРУТТО
+                                    val heatLoss = FoodReferenceInitializer.getHeatLossForMethod(ing.name, di.cookingMethod)
+                                    val netto = if (heatLoss > 0 && output > 0) output / ((100.0 - heatLoss) / 100.0) else output
+
+                                    val waste = ing.wastePercent.coerceIn(0.0, 99.9)
+                                    val brutto = if (waste > 0 && netto > 0) netto / ((100.0 - waste) / 100.0) else netto
+
+                                    val nettoStr = String.format(Locale.US, "%.1f", netto)
+                                    val bruttoStr = String.format(Locale.US, "%.1f", brutto)
+
+                                    val displayUnit = when (ing.unit) {
+                                        "кг" -> "г"
+                                        "л" -> "мл"
+                                        else -> ing.unit
+                                    }
+
+                                    Card(
+                                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
                                     ) {
-                                        Column(Modifier.weight(1f)) {
-                                            Text(ing.name, style = MaterialTheme.typography.bodyMedium)
-                                            if (ing.calories > 0) {
-                                                Text("${ing.calories} ккал/100${ing.unit}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                            } else {
-                                                Text("Нет БЖУ", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
+                                        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                            Row(
+                                                Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Text(ing.name, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                                                IconButton(onClick = { dishIngs.remove(di); amountStrings.remove(ing.id) }) {
+                                                    Icon(Icons.Default.Delete, "Удалить", tint = MaterialTheme.colorScheme.error)
+                                                }
                                             }
-                                        }
 
-                                        OutlinedTextField(
-                                            value = amountStrings[ing.id] ?: "",
-                                            onValueChange = { input ->
-                                                amountStrings[ing.id] = input.filter { it.isDigit() || it == '.' }
-                                            },
-                                            modifier = Modifier.width(120.dp),
-                                            singleLine = true,
-                                            suffix = { Text(ing.unit, style = MaterialTheme.typography.labelSmall) },
-                                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal)
-                                        )
+                                            Row(
+                                                Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                OutlinedTextField(
+                                                    value = amountStrings[ing.id] ?: "",
+                                                    onValueChange = { input -> amountStrings[ing.id] = input.filter { it.isDigit() || it == '.' } },
+                                                    modifier = Modifier.weight(1f),
+                                                    singleLine = true,
+                                                    label = { Text("Выход", style = MaterialTheme.typography.labelSmall) },
+                                                    suffix = { Text(displayUnit, style = MaterialTheme.typography.labelSmall) },
+                                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal)
+                                                )
 
-                                        IconButton(
-                                            onClick = {
-                                                dishIngs.remove(di)
-                                                amountStrings.remove(ing.id)
+                                                var showMethodMenu by remember { mutableStateOf(false) }
+                                                Box(modifier = Modifier.weight(1f)) {
+                                                    OutlinedButton(
+                                                        onClick = { showMethodMenu = true },
+                                                        modifier = Modifier.fillMaxWidth(),
+                                                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp)
+                                                    ) {
+                                                        Text(di.cookingMethod, style = MaterialTheme.typography.bodySmall, maxLines = 1)
+                                                        Icon(Icons.Default.ArrowDropDown, null)
+                                                    }
+                                                    DropdownMenu(
+                                                        expanded = showMethodMenu,
+                                                        onDismissRequest = { showMethodMenu = false }
+                                                    ) {
+                                                        listOf("Сырой", "Варка", "Жарка", "Запекание", "Тушение").forEach { method ->
+                                                            DropdownMenuItem(
+                                                                text = { Text(method) },
+                                                                onClick = {
+                                                                    val index = dishIngs.indexOf(di)
+                                                                    if (index != -1) {
+                                                                        dishIngs[index] = di.copy(cookingMethod = method)
+                                                                    }
+                                                                    showMethodMenu = false
+                                                                }
+                                                            )
+                                                        }
+                                                    }
+                                                }
                                             }
-                                        ) {
-                                            Icon(Icons.Default.Delete, "Удалить", tint = MaterialTheme.colorScheme.error)
+
+                                            if (output > 0) {
+                                                Row(
+                                                    Modifier.fillMaxWidth(),
+                                                    horizontalArrangement = Arrangement.SpaceBetween
+                                                ) {
+                                                    Column {
+                                                        Text("Нетто (в кастрюлю): $nettoStr $displayUnit", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                                        Text("Брутто (со склада): $bruttoStr $displayUnit", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                                                    }
+                                                    if (heatLoss > 0) {
+                                                        Text("Потери: $heatLoss%", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
+                                                    }
+                                                }
+                                            }
                                         }
                                     }
                                 }
@@ -249,7 +353,7 @@ fun DishEditScreen(
             onConfirm = { selectedIngs ->
                 selectedIngs.forEach { ing ->
                     if (dishIngs.none { it.ingredientId == ing.id }) {
-                        dishIngs.add(DishIngredient(dishId = dish?.id ?: 0, ingredientId = ing.id, amount = 0.0))
+                        dishIngs.add(DishIngredient(dishId = dish?.id ?: 0, ingredientId = ing.id, amount = 0.0, cookingMethod = "Сырой"))
                         amountStrings[ing.id] = ""
                     }
                 }

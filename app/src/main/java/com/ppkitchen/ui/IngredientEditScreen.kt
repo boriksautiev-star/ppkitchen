@@ -39,17 +39,18 @@ fun IngredientEditScreen(
 
     var name by remember { mutableStateOf(ingredient?.name ?: "") }
     var priceText by remember { mutableStateOf(ingredient?.pricePerKg?.toString() ?: "") }
-    var unit by remember { mutableStateOf(ingredient?.unit ?: "г") }
+    var unit by remember { mutableStateOf(if (ingredient?.unit == "кг") "г" else ingredient?.unit ?: "г") }
     var category by remember { mutableStateOf(ingredient?.category ?: "Прочее") }
 
     var kcalText by remember { mutableStateOf(if ((ingredient?.calories ?: 0.0) > 0) ingredient!!.calories.toString() else "") }
     var protText by remember { mutableStateOf(if ((ingredient?.protein ?: 0.0) > 0) ingredient!!.protein.toString() else "") }
     var fatText by remember { mutableStateOf(if ((ingredient?.fat ?: 0.0) > 0) ingredient!!.fat.toString() else "") }
     var carbText by remember { mutableStateOf(if ((ingredient?.carbs ?: 0.0) > 0) ingredient!!.carbs.toString() else "") }
+    var wasteText by remember { mutableStateOf(if ((ingredient?.wastePercent ?: 0.0) > 0) ingredient!!.wastePercent.toString() else "") }
+    var heatLossText by remember { mutableStateOf(if ((ingredient?.heatLossPercent ?: 0.0) > 0) ingredient!!.heatLossPercent.toString() else "") }
 
     var showCategoryMenu by remember { mutableStateOf(false) }
 
-    // Поиск и автодополнение
     var searchResults by remember { mutableStateOf<List<FoodReference>>(emptyList()) }
     var showSuggestions by remember { mutableStateOf(false) }
 
@@ -70,16 +71,9 @@ fun IngredientEditScreen(
 
     Dialog(
         onDismissRequest = onDismiss,
-        properties = DialogProperties(
-            usePlatformDefaultWidth = false,
-            dismissOnClickOutside = false,
-            dismissOnBackPress = true
-        )
+        properties = DialogProperties(usePlatformDefaultWidth = false, dismissOnClickOutside = false, dismissOnBackPress = true)
     ) {
-        Surface(
-            modifier = Modifier.fillMaxSize(),
-            color = MaterialTheme.colorScheme.background
-        ) {
+        Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
             Column(Modifier.fillMaxSize()) {
                 CompactTopBar(
                     title = if (isEdit) "Редактировать ингредиент" else "Новый ингредиент",
@@ -97,7 +91,9 @@ fun IngredientEditScreen(
                                     calories = kcalText.toDoubleOrNull() ?: 0.0,
                                     protein = protText.toDoubleOrNull() ?: 0.0,
                                     fat = fatText.toDoubleOrNull() ?: 0.0,
-                                    carbs = carbText.toDoubleOrNull() ?: 0.0
+                                    carbs = carbText.toDoubleOrNull() ?: 0.0,
+                                    wastePercent = wasteText.toDoubleOrNull() ?: 0.0,
+                                    heatLossPercent = heatLossText.toDoubleOrNull() ?: 0.0
                                 ))
                             }
                         ) {
@@ -107,13 +103,9 @@ fun IngredientEditScreen(
                 )
 
                 Column(
-                    Modifier
-                        .fillMaxSize()
-                        .verticalScroll(rememberScrollState())
-                        .padding(16.dp),
+                    Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    // Поле поиска
                     OutlinedTextField(
                         value = name,
                         onValueChange = { name = it },
@@ -123,19 +115,12 @@ fun IngredientEditScreen(
                         modifier = Modifier.fillMaxWidth()
                     )
 
-                    // Встроенный список подсказок (не крадет фокус)
                     if (showSuggestions) {
                         Card(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(top = 4.dp),
-                            colors = CardDefaults.cardColors(
-                                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-                            )
+                            modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
                         ) {
-                            LazyColumn(
-                                modifier = Modifier.heightIn(max = 250.dp)
-                            ) {
+                            LazyColumn(modifier = Modifier.heightIn(max = 250.dp)) {
                                 items(searchResults, key = { it.id }) { ref ->
                                     DropdownMenuItem(
                                         text = {
@@ -154,8 +139,12 @@ fun IngredientEditScreen(
                                             protText = if (ref.protein > 0) ref.protein.toString() else ""
                                             fatText = if (ref.fat > 0) ref.fat.toString() else ""
                                             carbText = if (ref.carbs > 0) ref.carbs.toString() else ""
+
+                                            wasteText = if (ref.wastePercent > 0) ref.wastePercent.toString() else ""
+                                            heatLossText = com.ppkitchen.data.FoodReferenceInitializer.getSuggestedHeatLoss(ref.name)
+
                                             showSuggestions = false
-                                            keyboardController?.hide() // Скрываем клавиатуру только после выбора
+                                            keyboardController?.hide()
                                         }
                                     )
                                     HorizontalDivider()
@@ -164,36 +153,19 @@ fun IngredientEditScreen(
                         }
                     }
 
-                    // Выбор группы
                     Box {
-                        OutlinedButton(
-                            onClick = { showCategoryMenu = true },
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
+                        OutlinedButton(onClick = { showCategoryMenu = true }, modifier = Modifier.fillMaxWidth()) {
                             Text("Группа: $category")
                         }
-                        DropdownMenu(
-                            expanded = showCategoryMenu,
-                            onDismissRequest = { showCategoryMenu = false }
-                        ) {
+                        DropdownMenu(expanded = showCategoryMenu, onDismissRequest = { showCategoryMenu = false }) {
                             categories.forEach { cat ->
-                                DropdownMenuItem(
-                                    text = { Text(cat.name) },
-                                    onClick = {
-                                        category = cat.name
-                                        showCategoryMenu = false
-                                    }
-                                )
+                                DropdownMenuItem(text = { Text(cat.name) }, onClick = { category = cat.name; showCategoryMenu = false })
                             }
                         }
                     }
 
-                    // Выбор единицы измерения
                     Text("Единица измерения в рецепте", style = MaterialTheme.typography.labelMedium)
-                    Row(
-                        Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         listOf("г", "мл", "шт").forEach { u ->
                             FilterChip(
                                 selected = unit == u,
@@ -204,7 +176,6 @@ fun IngredientEditScreen(
                         }
                     }
 
-                    // Цена
                     OutlinedTextField(
                         value = priceText,
                         onValueChange = { input -> priceText = input.filter { it.isDigit() || it == '.' } },
@@ -214,55 +185,42 @@ fun IngredientEditScreen(
                         modifier = Modifier.fillMaxWidth()
                     )
 
-                    HorizontalDivider(Modifier.padding(vertical = 4.dp))
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedTextField(
+                            value = wasteText,
+                            onValueChange = { input -> wasteText = input.filter { it.isDigit() || it == '.' } },
+                            label = { Text("Холодные отходы (%)") },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                            singleLine = true,
+                            modifier = Modifier.weight(1f)
+                        )
 
-                    // БЖУ
-                    Text("Пищевая ценность на 100 ${if (unit == "шт") "грамм" else unit}", style = MaterialTheme.typography.titleSmall)
-
-                    Row(
-                        Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
                         OutlinedTextField(
-                            value = kcalText,
-                            onValueChange = { input -> kcalText = input.filter { it.isDigit() || it == '.' } },
-                            label = { Text("Ккал") },
-                            modifier = Modifier.weight(1f),
+                            value = heatLossText,
+                            onValueChange = { input -> heatLossText = input.filter { it.isDigit() || it == '.' } },
+                            label = { Text("Тепловые потери (%)") },
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                            singleLine = true
-                        )
-                        OutlinedTextField(
-                            value = protText,
-                            onValueChange = { input -> protText = input.filter { it.isDigit() || it == '.' } },
-                            label = { Text("Белки") },
-                            modifier = Modifier.weight(1f),
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                            singleLine = true
-                        )
-                        OutlinedTextField(
-                            value = fatText,
-                            onValueChange = { input -> fatText = input.filter { it.isDigit() || it == '.' } },
-                            label = { Text("Жиры") },
-                            modifier = Modifier.weight(1f),
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                            singleLine = true
-                        )
-                        OutlinedTextField(
-                            value = carbText,
-                            onValueChange = { input -> carbText = input.filter { it.isDigit() || it == '.' } },
-                            label = { Text("Углев.") },
-                            modifier = Modifier.weight(1f),
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                            singleLine = true
+                            singleLine = true,
+                            modifier = Modifier.weight(1f)
                         )
                     }
 
                     Text(
-                        "💡 Подсказка: цена указывается за 1 кг/л/шт (брутто). " +
-                                "Вес в рецептах блюд указывается чистый (нетто).",
+                        "💡 Холодные — очистка (кожура, кости). Тепловые — уварка, жарка, запекание.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+
+                    HorizontalDivider(Modifier.padding(vertical = 4.dp))
+
+                    Text("Пищевая ценность на 100 ${if (unit == "шт") "грамм" else unit}", style = MaterialTheme.typography.titleSmall)
+
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        OutlinedTextField(value = kcalText, onValueChange = { kcalText = it.filter { ch -> ch.isDigit() || ch == '.' } }, label = { Text("Ккал") }, modifier = Modifier.weight(1f), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), singleLine = true)
+                        OutlinedTextField(value = protText, onValueChange = { protText = it.filter { ch -> ch.isDigit() || ch == '.' } }, label = { Text("Белки") }, modifier = Modifier.weight(1f), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), singleLine = true)
+                        OutlinedTextField(value = fatText, onValueChange = { fatText = it.filter { ch -> ch.isDigit() || ch == '.' } }, label = { Text("Жиры") }, modifier = Modifier.weight(1f), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), singleLine = true)
+                        OutlinedTextField(value = carbText, onValueChange = { carbText = it.filter { ch -> ch.isDigit() || ch == '.' } }, label = { Text("Углев.") }, modifier = Modifier.weight(1f), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), singleLine = true)
+                    }
                 }
             }
         }

@@ -9,7 +9,6 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material.icons.filled.Add
@@ -85,13 +84,22 @@ fun IngredientManagerDialog(
                     for (i in 0 until arr.length()) {
                         val o = arr.getJSONObject(i)
                         val source = o.optString("source", "builtin")
+                        val name = o.getString("name")
+
+                        val waste = if (o.has("wastePercent")) {
+                            o.optDouble("wastePercent", 0.0)
+                        } else {
+                            FoodReferenceInitializer.getSuggestedWaste(name).toDoubleOrNull() ?: 0.0
+                        }
+
                         val ref = FoodReference(
-                            name = o.getString("name"),
+                            name = name,
                             calories = o.optDouble("calories", 0.0),
                             protein = o.optDouble("protein", 0.0),
                             fat = o.optDouble("fat", 0.0),
                             carbs = o.optDouble("carbs", 0.0),
-                            source = source
+                            source = source,
+                            wastePercent = waste
                         )
                         if (source == "custom") customs.add(ref) else builtins.add(ref)
                     }
@@ -126,6 +134,7 @@ fun IngredientManagerDialog(
                         sb.append("\"protein\":${ref.protein},")
                         sb.append("\"fat\":${ref.fat},")
                         sb.append("\"carbs\":${ref.carbs},")
+                        sb.append("\"wastePercent\":${ref.wastePercent},")
                         sb.append("\"source\":\"${ref.source}\"")
                         sb.append("}")
                         if (i < all.size - 1) sb.append(",")
@@ -250,7 +259,7 @@ fun IngredientManagerDialog(
                                 scope.launch {
                                     try {
                                         db.foodReferenceDao().deleteBySource("builtin")
-                                        FoodReferenceInitializer.initializeIfNeeded(ctx, db)
+                                        FoodReferenceInitializer.initializeIfNeeded(ctx)
                                         refreshCounts()
                                         Toast.makeText(ctx, "Заводской справочник восстановлен", Toast.LENGTH_SHORT).show()
                                     } catch (e: Exception) {
@@ -263,6 +272,31 @@ fun IngredientManagerDialog(
                             Icon(Icons.Default.Refresh, null, modifier = Modifier.size(16.dp))
                             Spacer(Modifier.width(4.dp))
                             Text("Сбросить к заводскому", style = MaterialTheme.typography.labelMedium)
+                        }
+
+                        Spacer(Modifier.height(4.dp))
+
+                        // НОВАЯ КНОПКА: АВТО-ЗАПОЛНЕНИЕ ОТХОДОВ
+                        Button(
+                            onClick = {
+                                scope.launch {
+                                    var updatedCount = 0
+                                    ingredients.forEach { ing ->
+                                        val suggested = FoodReferenceInitializer.getSuggestedWaste(ing.name).toDoubleOrNull() ?: 0.0
+                                        if (suggested > 0 && ing.wastePercent == 0.0) {
+                                            db.ingredientDao().update(ing.copy(wastePercent = suggested))
+                                            updatedCount++
+                                        }
+                                    }
+                                    Toast.makeText(ctx, "Обновлено ингредиентов: $updatedCount", Toast.LENGTH_SHORT).show()
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.tertiary)
+                        ) {
+                            Icon(Icons.Default.Refresh, null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("Авто-заполнить % отходов", style = MaterialTheme.typography.labelMedium)
                         }
                     }
                 }
@@ -323,6 +357,9 @@ fun IngredientManagerDialog(
                                         if (ing.calories > 0) {
                                             Text("БЖУ: ${ing.calories} ккал / Б${ing.protein} Ж${ing.fat} У${ing.carbs}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                         }
+                                        if (ing.wastePercent > 0) {
+                                            Text("Отходы: ${ing.wastePercent}%", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                                        }
                                     }
                                     IconButton(onClick = { scope.launch { db.ingredientDao().delete(ing) } }) {
                                         Icon(Icons.Default.Delete, "Удалить", tint = MaterialTheme.colorScheme.error)
@@ -351,7 +388,8 @@ fun IngredientManagerDialog(
                                 protein = newIng.protein,
                                 fat = newIng.fat,
                                 carbs = newIng.carbs,
-                                source = "custom"
+                                source = "custom",
+                                wastePercent = newIng.wastePercent
                             )
                         )
                         refreshCounts()

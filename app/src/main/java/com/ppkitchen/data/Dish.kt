@@ -19,10 +19,11 @@ data class Ingredient(
     val calories: Double = 0.0,
     val protein: Double = 0.0,
     val fat: Double = 0.0,
-    val carbs: Double = 0.0
+    val carbs: Double = 0.0,
+    val wastePercent: Double = 0.0,
+    val heatLossPercent: Double = 0.0
 )
 
-// НОВАЯ СУЩНОСТЬ ДЛЯ ГРУПП БЛЮД
 @Entity(tableName = "dish_categories")
 data class DishCategory(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
@@ -37,7 +38,7 @@ data class Dish(
     val protein: Int = 0,
     val fat: Int = 0,
     val carbs: Int = 0,
-    val category: String = "Прочее" // Сюда будет записываться название группы
+    val category: String = "Прочее"
 )
 
 @Entity(
@@ -47,5 +48,6 @@ data class Dish(
 data class DishIngredient(
     val dishId: Long,
     val ingredientId: Long,
-    val amount: Double
+    val amount: Double, // НЕТТО (чистый вес до готовки)
+    val cookingMethod: String = "Сырой" // НОВОЕ ПОЛЕ: Способ обработки
 )

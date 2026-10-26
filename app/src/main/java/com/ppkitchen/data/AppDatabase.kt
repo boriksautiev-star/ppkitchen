@@ -15,7 +15,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         FoodReference::class, DishCategory::class,
         MenuTemplate::class, MenuDay::class, MenuDayDish::class
     ],
-    version = 27,
+    version = 31,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -332,6 +332,30 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_27_28 = object : Migration(27, 28) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE ingredients ADD COLUMN wastePercent REAL NOT NULL DEFAULT 0.0")
+            }
+        }
+
+        private val MIGRATION_28_29 = object : Migration(28, 29) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE food_reference ADD COLUMN wastePercent REAL NOT NULL DEFAULT 0.0")
+            }
+        }
+
+        private val MIGRATION_29_30 = object : Migration(29, 30) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE ingredients ADD COLUMN heatLossPercent REAL NOT NULL DEFAULT 0.0")
+            }
+        }
+
+        private val MIGRATION_30_31 = object : Migration(30, 31) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE dish_ingredients ADD COLUMN cookingMethod TEXT NOT NULL DEFAULT 'Сырой'")
+            }
+        }
+
         fun get(context: Context): AppDatabase =
             INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
@@ -347,7 +371,8 @@ abstract class AppDatabase : RoomDatabase() {
                         MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20,
                         MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23,
                         MIGRATION_23_24, MIGRATION_24_25, MIGRATION_25_26,
-                        MIGRATION_26_27
+                        MIGRATION_26_27, MIGRATION_27_28, MIGRATION_28_29,
+                        MIGRATION_29_30, MIGRATION_30_31
                     )
                     .fallbackToDestructiveMigrationOnDowngrade()
                     .build()

@@ -39,10 +39,8 @@ class MainActivity : ComponentActivity() {
 
         // === 2. Инициализация заводского справочника БЖУ (если база пуста) ===
         lifecycleScope.launch {
-            FoodReferenceInitializer.initializeIfNeeded(
-                applicationContext,
-                AppDatabase.get(applicationContext)
-            )
+            // ИСПРАВЛЕНО: убрали лишний аргумент AppDatabase.get(...)
+            FoodReferenceInitializer.initializeIfNeeded(applicationContext)
         }
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {

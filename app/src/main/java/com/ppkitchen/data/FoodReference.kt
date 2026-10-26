@@ -11,5 +11,6 @@ data class FoodReference(
     val protein: Double,
     val fat: Double,
     val carbs: Double,
-    val source: String = "builtin" // "builtin" или "custom"
+    val source: String = "builtin",
+    val wastePercent: Double = 0.0 // НОВОЕ ПОЛЕ
 )
