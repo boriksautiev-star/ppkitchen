@@ -325,6 +325,9 @@ fun OrdersScreen(onOpenCouriers: () -> Unit) {
     var editingOrder by remember { mutableStateOf<Order?>(null) }
     var shareMenuExpanded by remember { mutableStateOf(false) }
 
+    // Состояние для открытия экрана списка закупок
+    var showShoppingListScreen by remember { mutableStateOf(false) }
+
     var showCourierPicker by remember { mutableStateOf(false) }
     var selectedCourierForShare by remember { mutableStateOf<Courier?>(null) }
 
@@ -341,10 +344,9 @@ fun OrdersScreen(onOpenCouriers: () -> Unit) {
     val activeCouriers by db.courierDao().getActive().collectAsState(initial = emptyList())
     val allCouriers by db.courierDao().getAll().collectAsState(initial = emptyList())
 
-    // ДАННЫЕ ДЛЯ МЕНЮ
     val menuTemplates by db.menuTemplateDao().getAll().collectAsState(initial = emptyList())
     val allDishes by db.dishDao().getAll().collectAsState(initial = emptyList())
-    val rations by db.rationDao().getAll().collectAsState(initial = emptyList()) // <-- ДОБАВЛЕНО
+    val rations by db.rationDao().getAll().collectAsState(initial = emptyList())
     var allMenuDays by remember { mutableStateOf<List<MenuDay>>(emptyList()) }
     var allMenuDayDishes by remember { mutableStateOf<List<MenuDayDish>>(emptyList()) }
 
@@ -426,6 +428,13 @@ fun OrdersScreen(onOpenCouriers: () -> Unit) {
                                     scope.launch {
                                         WeeklyMenuGenerator.generateAndShare(ctx, selectedDate)
                                     }
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Список закупок") },
+                                onClick = {
+                                    shareMenuExpanded = false
+                                    showShoppingListScreen = true // ОТКРЫВАЕМ НОВЫЙ ЭКРАН
                                 }
                             )
                             DropdownMenuItem(
@@ -566,7 +575,6 @@ fun OrdersScreen(onOpenCouriers: () -> Unit) {
 
                                 Spacer(Modifier.height(4.dp))
 
-                                // БЛОК С МЕНЮ (с передачей рационов)
                                 OrderDayMenuBlock(
                                     order = o,
                                     date = selectedDate,
@@ -574,7 +582,7 @@ fun OrdersScreen(onOpenCouriers: () -> Unit) {
                                     menuDays = allMenuDays,
                                     menuDayDishes = allMenuDayDishes,
                                     allDishes = allDishes,
-                                    rations = rations // <-- ПЕРЕДАЕМ РАЦИОНЫ
+                                    rations = rations
                                 )
 
                                 if (isSkippedDay) {
@@ -823,6 +831,14 @@ fun OrdersScreen(onOpenCouriers: () -> Unit) {
         }
     }
 
+    // НОВЫЙ ЭКРАН СПИСКА ЗАКУПОК
+    if (showShoppingListScreen) {
+        ShoppingListScreen(
+            startDate = selectedDate,
+            onDismiss = { showShoppingListScreen = false }
+        )
+    }
+
     if (showCourierPicker) {
         CourierPickerDialog(
             couriers = activeCouriers,
@@ -1043,14 +1059,13 @@ fun OrderDayMenuBlock(
     menuDays: List<MenuDay>,
     menuDayDishes: List<MenuDayDish>,
     allDishes: List<Dish>,
-    rations: List<Ration> // <-- ПРИНИМАЕМ РАЦИОНЫ
+    rations: List<Ration>
 ) {
     if (order.menuTemplateId == 0L) return
 
     val template = templates.find { it.id == order.menuTemplateId }
     if (template == null) return
 
-    // Находим рацион, привязанный к заказу
     val ration = rations.find { it.id == order.rationId }
 
     val dishes = MenuCalculator.getDishesForDate(
@@ -1060,7 +1075,7 @@ fun OrderDayMenuBlock(
         menuDays = menuDays.filter { it.templateId == template.id },
         allMenuDayDishes = menuDayDishes,
         allDishes = allDishes,
-        ration = ration // <-- ПЕРЕДАЕМ В КАЛЬКУЛЯТОР
+        ration = ration
     )
 
     if (dishes.isNotEmpty()) {
