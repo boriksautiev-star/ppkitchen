@@ -6,7 +6,6 @@ plugins {
     alias(libs.plugins.ksp)
 }
 
-// Читаем пароли подписи из local.properties — он НЕ коммитится в git
 val localProperties = Properties().apply {
     val f = rootProject.file("local.properties")
     if (f.exists()) {
@@ -87,6 +86,10 @@ dependencies {
 
     implementation("androidx.work:work-runtime-ktx:2.9.1")
     implementation("androidx.documentfile:documentfile:1.0.1")
+
+    // Excel библиотеки (запись + чтение). Обновлены до 0.20.2!
+    implementation("org.dhatim:fastexcel:0.20.2")
+    implementation("org.dhatim:fastexcel-reader:0.20.2")
 
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)

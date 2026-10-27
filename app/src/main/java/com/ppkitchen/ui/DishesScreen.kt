@@ -39,7 +39,7 @@ fun DishesScreen() {
     val dishIngredients by db.dishIngredientDao().getAll().collectAsState(initial = emptyList())
     val dishCategories by db.dishCategoryDao().getAll().collectAsState(initial = emptyList())
 
-    var selectedTab by remember { mutableIntStateOf(0) } // 0 = Блюда, 1 = Меню, 2 = Рационы
+    var selectedTab by remember { mutableIntStateOf(0) }
 
     var showIngredientDialog by remember { mutableStateOf(false) }
     var showCreateDish by remember { mutableStateOf(false) }
@@ -136,7 +136,6 @@ fun DishesScreen() {
             }
 
             if (selectedTab == 0) {
-                // --- ЭКРАН БЛЮД ---
                 Column(Modifier.fillMaxSize()) {
                     Row(
                         Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 8.dp),
@@ -160,13 +159,29 @@ fun DishesScreen() {
                         ) {
                             items(filteredAndSorted, key = { it.id }) { dish ->
                                 val cost = calculateCost(dish.id)
-                                Card(Modifier.fillMaxWidth().clickable { viewingDish = dish }) {
-                                    Row(Modifier.padding(16.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+
+                                Card(
+                                    Modifier.fillMaxWidth().clickable { viewingDish = dish }
+                                ) {
+                                    Row(
+                                        Modifier.padding(16.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
                                         Column(Modifier.weight(1f)) {
                                             Text(dish.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                                            Text("${dish.calories} ккал · Б${dish.protein} Ж${dish.fat} У${dish.carbs}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                            Text(
+                                                "${dish.calories} ккал · Б${dish.protein} Ж${dish.fat} У${dish.carbs}",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
                                         }
-                                        Text(String.format(Locale.US, "%.0f ₽", cost), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Medium)
+                                        Text(
+                                            String.format(Locale.US, "%.0f ₽", cost),
+                                            style = MaterialTheme.typography.titleMedium,
+                                            color = MaterialTheme.colorScheme.primary,
+                                            fontWeight = FontWeight.Medium
+                                        )
                                     }
                                 }
                             }
@@ -174,11 +189,13 @@ fun DishesScreen() {
                     }
                 }
             } else if (selectedTab == 1) {
-                // --- ЭКРАН МЕНЮ (ШАБЛОНЫ) ---
-                Box(Modifier.fillMaxSize()) { MenuTemplatesScreen() }
+                Box(Modifier.fillMaxSize()) {
+                    MenuTemplatesScreen()
+                }
             } else {
-                // --- ЭКРАН РАЦИОНОВ ---
-                Box(Modifier.fillMaxSize()) { RationsScreen() }
+                Box(Modifier.fillMaxSize()) {
+                    RationsScreen()
+                }
             }
         }
     }
@@ -217,8 +234,14 @@ fun DishesScreen() {
             ingredients = ingredients,
             dishIngredients = dishIngredients,
             cost = calculateCost(viewingDish!!.id),
-            onEdit = { editingDish = viewingDish; viewingDish = null },
-            onDelete = { dishToDelete = viewingDish; viewingDish = null },
+            onEdit = {
+                editingDish = viewingDish
+                viewingDish = null
+            },
+            onDelete = {
+                dishToDelete = viewingDish
+                viewingDish = null
+            },
             onDismiss = { viewingDish = null }
         )
     }
@@ -236,12 +259,19 @@ fun DishesScreen() {
                                 db.dishIngredientDao().deleteForDish(dishToDelete!!.id)
                                 db.dishDao().delete(dishToDelete!!)
                                 dishToDelete = null
-                            } catch (e: Exception) {}
+                            } catch (e: Exception) {
+                            }
                         }
                     }
-                ) { Text("Удалить", color = MaterialTheme.colorScheme.error) }
+                ) {
+                    Text("Удалить", color = MaterialTheme.colorScheme.error)
+                }
             },
-            dismissButton = { TextButton(onClick = { dishToDelete = null }) { Text("Отмена") } }
+            dismissButton = {
+                TextButton(onClick = { dishToDelete = null }) {
+                    Text("Отмена")
+                }
+            }
         )
     }
 }
@@ -313,7 +343,7 @@ fun DishDetailScreen(
                                 dIngs.forEach { di ->
                                     val ing = ingredients.find { it.id == di.ingredientId }
                                     if (ing != null) {
-                                        val heatLoss = FoodReferenceInitializer.getHeatLossForMethod(ing.name, di.cookingMethod)
+                                        val heatLoss = ing.getLossForMethod(di.cookingMethod)
                                         val output = if (heatLoss > 0) di.amount * ((100.0 - heatLoss) / 100.0) else di.amount
 
                                         val waste = ing.wastePercent.coerceIn(0.0, 99.9)

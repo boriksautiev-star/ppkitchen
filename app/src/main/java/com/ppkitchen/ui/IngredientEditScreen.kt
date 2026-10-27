@@ -47,7 +47,12 @@ fun IngredientEditScreen(
     var fatText by remember { mutableStateOf(if ((ingredient?.fat ?: 0.0) > 0) ingredient!!.fat.toString() else "") }
     var carbText by remember { mutableStateOf(if ((ingredient?.carbs ?: 0.0) > 0) ingredient!!.carbs.toString() else "") }
     var wasteText by remember { mutableStateOf(if ((ingredient?.wastePercent ?: 0.0) > 0) ingredient!!.wastePercent.toString() else "") }
-    var heatLossText by remember { mutableStateOf(if ((ingredient?.heatLossPercent ?: 0.0) > 0) ingredient!!.heatLossPercent.toString() else "") }
+
+    // НОВЫЕ ПОЛЯ
+    var lossBoilingText by remember { mutableStateOf(if ((ingredient?.lossBoiling ?: 0.0) > 0) ingredient!!.lossBoiling.toString() else "") }
+    var lossFryingText by remember { mutableStateOf(if ((ingredient?.lossFrying ?: 0.0) > 0) ingredient!!.lossFrying.toString() else "") }
+    var lossBakingText by remember { mutableStateOf(if ((ingredient?.lossBaking ?: 0.0) > 0) ingredient!!.lossBaking.toString() else "") }
+    var lossStewingText by remember { mutableStateOf(if ((ingredient?.lossStewing ?: 0.0) > 0) ingredient!!.lossStewing.toString() else "") }
 
     var showCategoryMenu by remember { mutableStateOf(false) }
 
@@ -93,7 +98,10 @@ fun IngredientEditScreen(
                                     fat = fatText.toDoubleOrNull() ?: 0.0,
                                     carbs = carbText.toDoubleOrNull() ?: 0.0,
                                     wastePercent = wasteText.toDoubleOrNull() ?: 0.0,
-                                    heatLossPercent = heatLossText.toDoubleOrNull() ?: 0.0
+                                    lossBoiling = lossBoilingText.toDoubleOrNull() ?: 0.0,
+                                    lossFrying = lossFryingText.toDoubleOrNull() ?: 0.0,
+                                    lossBaking = lossBakingText.toDoubleOrNull() ?: 0.0,
+                                    lossStewing = lossStewingText.toDoubleOrNull() ?: 0.0
                                 ))
                             }
                         ) {
@@ -141,7 +149,11 @@ fun IngredientEditScreen(
                                             carbText = if (ref.carbs > 0) ref.carbs.toString() else ""
 
                                             wasteText = if (ref.wastePercent > 0) ref.wastePercent.toString() else ""
-                                            heatLossText = com.ppkitchen.data.FoodReferenceInitializer.getSuggestedHeatLoss(ref.name)
+                                            // Автоматически подставляем потери для каждого метода из справочника
+                                            lossBoilingText = com.ppkitchen.data.FoodReferenceInitializer.getSuggestedHeatLoss(ref.name).toString()
+                                            lossFryingText = com.ppkitchen.data.FoodReferenceInitializer.getSuggestedHeatLoss(ref.name).toString()
+                                            lossBakingText = com.ppkitchen.data.FoodReferenceInitializer.getSuggestedHeatLoss(ref.name).toString()
+                                            lossStewingText = com.ppkitchen.data.FoodReferenceInitializer.getSuggestedHeatLoss(ref.name).toString()
 
                                             showSuggestions = false
                                             keyboardController?.hide()
@@ -185,20 +197,48 @@ fun IngredientEditScreen(
                         modifier = Modifier.fillMaxWidth()
                     )
 
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        value = wasteText,
+                        onValueChange = { input -> wasteText = input.filter { it.isDigit() || it == '.' } },
+                        label = { Text("Холодные отходы (%)") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    Text("Тепловые потери при обработке (%)", style = MaterialTheme.typography.labelMedium)
+
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         OutlinedTextField(
-                            value = wasteText,
-                            onValueChange = { input -> wasteText = input.filter { it.isDigit() || it == '.' } },
-                            label = { Text("Холодные отходы (%)") },
+                            value = lossBoilingText,
+                            onValueChange = { input -> lossBoilingText = input.filter { it.isDigit() || it == '.' } },
+                            label = { Text("Варка") },
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                             singleLine = true,
                             modifier = Modifier.weight(1f)
                         )
-
                         OutlinedTextField(
-                            value = heatLossText,
-                            onValueChange = { input -> heatLossText = input.filter { it.isDigit() || it == '.' } },
-                            label = { Text("Тепловые потери (%)") },
+                            value = lossFryingText,
+                            onValueChange = { input -> lossFryingText = input.filter { it.isDigit() || it == '.' } },
+                            label = { Text("Жарка") },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                            singleLine = true,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        OutlinedTextField(
+                            value = lossBakingText,
+                            onValueChange = { input -> lossBakingText = input.filter { it.isDigit() || it == '.' } },
+                            label = { Text("Запекание") },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                            singleLine = true,
+                            modifier = Modifier.weight(1f)
+                        )
+                        OutlinedTextField(
+                            value = lossStewingText,
+                            onValueChange = { input -> lossStewingText = input.filter { it.isDigit() || it == '.' } },
+                            label = { Text("Тушение") },
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                             singleLine = true,
                             modifier = Modifier.weight(1f)
@@ -206,7 +246,7 @@ fun IngredientEditScreen(
                     }
 
                     Text(
-                        "💡 Холодные — очистка (кожура, кости). Тепловые — уварка, жарка, запекание.",
+                        "💡 Холодные — очистка. Тепловые — уварка/ужарка при готовке.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )

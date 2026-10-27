@@ -15,7 +15,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         FoodReference::class, DishCategory::class,
         MenuTemplate::class, MenuDay::class, MenuDayDish::class, Ration::class
     ],
-    version = 34,
+    version = 35,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -384,6 +384,43 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        // ИСПРАВЛЕННАЯ МИГРАЦИЯ 34 -> 35
+        private val MIGRATION_34_35 = object : Migration(34, 35) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // 1. Создаем новую таблицу без старой колонки heatLossPercent
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS ingredients_new (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        name TEXT NOT NULL,
+                        pricePerKg REAL NOT NULL,
+                        unit TEXT NOT NULL,
+                        category TEXT NOT NULL,
+                        calories REAL NOT NULL,
+                        protein REAL NOT NULL,
+                        fat REAL NOT NULL,
+                        carbs REAL NOT NULL,
+                        wastePercent REAL NOT NULL,
+                        lossBoiling REAL NOT NULL DEFAULT 0.0,
+                        lossFrying REAL NOT NULL DEFAULT 0.0,
+                        lossBaking REAL NOT NULL DEFAULT 0.0,
+                        lossStewing REAL NOT NULL DEFAULT 0.0
+                    )
+                """)
+                // 2. Переносим данные из старой таблицы
+                db.execSQL("""
+                    INSERT INTO ingredients_new (
+                        id, name, pricePerKg, unit, category, calories, protein, fat, carbs, wastePercent
+                    )
+                    SELECT 
+                        id, name, pricePerKg, unit, category, calories, protein, fat, carbs, wastePercent
+                    FROM ingredients
+                """)
+                // 3. Удаляем старую и переименовываем новую
+                db.execSQL("DROP TABLE ingredients")
+                db.execSQL("ALTER TABLE ingredients_new RENAME TO ingredients")
+            }
+        }
+
         fun get(context: Context): AppDatabase =
             INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
@@ -401,7 +438,7 @@ abstract class AppDatabase : RoomDatabase() {
                         MIGRATION_23_24, MIGRATION_24_25, MIGRATION_25_26,
                         MIGRATION_26_27, MIGRATION_27_28, MIGRATION_28_29,
                         MIGRATION_29_30, MIGRATION_30_31, MIGRATION_31_32,
-                        MIGRATION_32_33, MIGRATION_33_34
+                        MIGRATION_32_33, MIGRATION_33_34, MIGRATION_34_35
                     )
                     .fallbackToDestructiveMigrationOnDowngrade()
                     .build()

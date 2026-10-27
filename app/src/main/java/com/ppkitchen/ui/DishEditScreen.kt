@@ -51,13 +51,11 @@ fun DishEditScreen(
     var showDishCategoryMenu by remember { mutableStateOf(false) }
 
     val dishIngs = remember { mutableStateListOf<DishIngredient>().apply { addAll(existingDishIngredients) } }
-
-    // ИНИЦИАЛИЗАЦИЯ: Переводим сохраненное НЕТТО в ВЫХОД для отображения пользователю
     val amountStrings = remember { mutableStateMapOf<Long, String>().apply {
         existingDishIngredients.forEach { di ->
             val ing = ingredients.find { it.id == di.ingredientId }
             if (ing != null) {
-                val heatLoss = FoodReferenceInitializer.getHeatLossForMethod(ing.name, di.cookingMethod)
+                val heatLoss = ing.getLossForMethod(di.cookingMethod)
                 val output = if (heatLoss > 0) di.amount * ((100.0 - heatLoss) / 100.0) else di.amount
                 put(di.ingredientId, if (output > 0) String.format(Locale.US, "%.1f", output) else "")
             } else {
@@ -79,8 +77,7 @@ fun DishEditScreen(
             val ing = ingredients.find { it.id == di.ingredientId }
             val output = amountStrings[di.ingredientId]?.toDoubleOrNull() ?: 0.0
             if (ing != null && output > 0) {
-                // БЖУ считаем по НЕТТО (переводим из Выхода)
-                val heatLoss = FoodReferenceInitializer.getHeatLossForMethod(ing.name, di.cookingMethod)
+                val heatLoss = ing.getLossForMethod(di.cookingMethod)
                 val netto = if (heatLoss > 0) output / ((100.0 - heatLoss) / 100.0) else output
 
                 val multiplier = if (ing.unit == "шт") netto else netto / 100.0
@@ -146,15 +143,14 @@ fun DishEditScreen(
                                         val output = amountStrings[di.ingredientId]?.toDoubleOrNull() ?: 0.0
                                         val ing = ingredients.find { it.id == di.ingredientId }
                                         if (ing != null && output > 0) {
-                                            // ПЕРЕВОДИМ ВЫХОД В НЕТТО ДЛЯ СОХРАНЕНИЯ В БАЗУ
-                                            val heatLoss = FoodReferenceInitializer.getHeatLossForMethod(ing.name, di.cookingMethod)
+                                            val heatLoss = ing.getLossForMethod(di.cookingMethod)
                                             val amtNetto = if (heatLoss > 0) output / ((100.0 - heatLoss) / 100.0) else output
 
                                             db.dishIngredientDao().insert(
                                                 DishIngredient(
                                                     dishId = dishId,
                                                     ingredientId = di.ingredientId,
-                                                    amount = amtNetto, // Сохраняем НЕТТО
+                                                    amount = amtNetto,
                                                     cookingMethod = di.cookingMethod
                                                 )
                                             )
@@ -245,8 +241,7 @@ fun DishEditScreen(
                                 if (ing != null) {
                                     val output = amountStrings[ing.id]?.toDoubleOrNull() ?: 0.0
 
-                                    // Считаем НЕТТО и БРУТТО
-                                    val heatLoss = FoodReferenceInitializer.getHeatLossForMethod(ing.name, di.cookingMethod)
+                                    val heatLoss = ing.getLossForMethod(di.cookingMethod)
                                     val netto = if (heatLoss > 0 && output > 0) output / ((100.0 - heatLoss) / 100.0) else output
 
                                     val waste = ing.wastePercent.coerceIn(0.0, 99.9)

@@ -11,12 +11,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Sort
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.CloudDownload
-import androidx.compose.material.icons.filled.CloudUpload
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Folder
-import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -31,7 +26,11 @@ import com.ppkitchen.data.FoodReference
 import com.ppkitchen.data.FoodReferenceInitializer
 import com.ppkitchen.data.Ingredient
 import com.ppkitchen.data.IngredientCategory
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import org.dhatim.fastexcel.Workbook
+import org.dhatim.fastexcel.reader.ReadableWorkbook
 import org.json.JSONArray
 import java.util.Locale
 
@@ -50,12 +49,15 @@ fun IngredientManagerDialog(
     var editingIngredient by remember { mutableStateOf<Ingredient?>(null) }
     var showCategoryManager by remember { mutableStateOf(false) }
 
+    var searchQuery by remember { mutableStateOf("") }
     var selectedCategory by remember { mutableStateOf("Все") }
     var sortMode by remember { mutableStateOf("name") }
     var showSortMenu by remember { mutableStateOf(false) }
 
-    var builtinCount by remember { mutableStateOf(0) }
-    var customCount by remember { mutableStateOf(0) }
+    var isRefExpanded by remember { mutableStateOf(false) }
+
+    var builtinCount by remember { mutableIntStateOf(0) }
+    var customCount by remember { mutableIntStateOf(0) }
 
     fun refreshCounts() {
         scope.launch {
@@ -65,8 +67,194 @@ fun IngredientManagerDialog(
     }
     LaunchedEffect(Unit) { refreshCounts() }
 
-    // Импорт из файла
-    val importLauncher = rememberLauncherForActivityResult(
+    // --- СКАЧАТЬ ШАБЛОН ---
+    val downloadTemplateLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    ) { uri ->
+        if (uri != null) {
+            scope.launch {
+                try {
+                    withContext(Dispatchers.IO) {
+                        ctx.contentResolver.openOutputStream(uri)?.use { out ->
+                            val wb = Workbook(out, "PP Kitchen", "1.0")
+                            val ws = wb.newWorksheet("Ингредиенты")
+
+                            ws.value(0, 0, "Название")
+                            ws.value(0, 1, "Цена")
+                            ws.value(0, 2, "Категория")
+                            ws.value(0, 3, "Ед.изм")
+                            ws.value(0, 4, "Ккал")
+                            ws.value(0, 5, "Белки")
+                            ws.value(0, 6, "Жиры")
+                            ws.value(0, 7, "Углеводы")
+                            ws.value(0, 8, "Отходы(%)")
+                            ws.value(0, 9, "Варка(%)")
+                            ws.value(0, 10, "Жарка(%)")
+                            ws.value(0, 11, "Запекание(%)")
+                            ws.value(0, 12, "Тушение(%)")
+
+                            // Пример
+                            ws.value(1, 0, "Курица грудка")
+                            ws.value(1, 1, 350.0)
+                            ws.value(1, 2, "Мясо")
+                            ws.value(1, 3, "г")
+                            ws.value(1, 4, 113.0)
+                            ws.value(1, 5, 23.6)
+                            ws.value(1, 6, 1.9)
+                            ws.value(1, 7, 0.4)
+                            ws.value(1, 8, 5.0)
+                            ws.value(1, 9, 25.0)
+                            ws.value(1, 10, 35.0)
+                            ws.value(1, 11, 40.0)
+                            ws.value(1, 12, 30.0)
+
+                            wb.finish()
+                        }
+                    }
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(ctx, "Шаблон Excel сохранен", Toast.LENGTH_LONG).show()
+                    }
+                } catch (e: Exception) {
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(ctx, "Ошибка: ${e.message}", Toast.LENGTH_LONG).show()
+                    }
+                }
+            }
+        }
+    }
+
+    // --- ИМПОРТ EXCEL ---
+    val importExcelLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            scope.launch {
+                try {
+                    val toInsert = mutableListOf<Ingredient>()
+                    val toUpdate = mutableListOf<Ingredient>()
+
+                    withContext(Dispatchers.IO) {
+                        ctx.contentResolver.openInputStream(uri)?.use { input ->
+                            ReadableWorkbook(input).use { wb ->
+                                val sheet = wb.firstSheet
+                                sheet?.openStream()?.use { rows ->
+                                    rows.skip(1).forEach { row ->
+                                        try {
+                                            val name = row.getCell(0)?.asString()?.trim() ?: ""
+                                            if (name.isNotBlank()) {
+                                                val price = row.getCell(1)?.asNumber()?.toDouble() ?: 0.0
+                                                val cat = row.getCell(2)?.asString()?.trim() ?: "Прочее"
+                                                val unit = row.getCell(3)?.asString()?.trim() ?: "г"
+                                                val kcal = row.getCell(4)?.asNumber()?.toDouble() ?: 0.0
+                                                val prot = row.getCell(5)?.asNumber()?.toDouble() ?: 0.0
+                                                val fat = row.getCell(6)?.asNumber()?.toDouble() ?: 0.0
+                                                val carb = row.getCell(7)?.asNumber()?.toDouble() ?: 0.0
+                                                val waste = row.getCell(8)?.asNumber()?.toDouble() ?: 0.0
+                                                val lossBoil = row.getCell(9)?.asNumber()?.toDouble() ?: 0.0
+                                                val lossFry = row.getCell(10)?.asNumber()?.toDouble() ?: 0.0
+                                                val lossBake = row.getCell(11)?.asNumber()?.toDouble() ?: 0.0
+                                                val lossStew = row.getCell(12)?.asNumber()?.toDouble() ?: 0.0
+
+                                                val existing = ingredients.find { it.name.equals(name, ignoreCase = true) }
+                                                val newIng = Ingredient(
+                                                    id = existing?.id ?: 0,
+                                                    name = name,
+                                                    pricePerKg = price,
+                                                    category = cat,
+                                                    unit = unit,
+                                                    calories = kcal,
+                                                    protein = prot,
+                                                    fat = fat,
+                                                    carbs = carb,
+                                                    wastePercent = waste,
+                                                    lossBoiling = lossBoil,
+                                                    lossFrying = lossFry,
+                                                    lossBaking = lossBake,
+                                                    lossStewing = lossStew
+                                                )
+                                                if (existing != null) toUpdate.add(newIng) else toInsert.add(newIng)
+                                            }
+                                        } catch (_: Exception) { }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    toUpdate.forEach { db.ingredientDao().update(it) }
+                    toInsert.forEach { db.ingredientDao().insert(it) }
+
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(ctx, "Импортировано: обновлено ${toUpdate.size}, добавлено ${toInsert.size}", Toast.LENGTH_LONG).show()
+                    }
+                } catch (e: Exception) {
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(ctx, "Ошибка импорта Excel: ${e.message}", Toast.LENGTH_LONG).show()
+                    }
+                }
+            }
+        }
+    }
+
+    // --- ЭКСПОРТ EXCEL ---
+    val exportExcelLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    ) { uri ->
+        if (uri != null) {
+            scope.launch {
+                try {
+                    withContext(Dispatchers.IO) {
+                        ctx.contentResolver.openOutputStream(uri)?.use { out ->
+                            val wb = Workbook(out, "PP Kitchen", "1.0")
+                            val ws = wb.newWorksheet("Ингредиенты")
+
+                            ws.value(0, 0, "Название")
+                            ws.value(0, 1, "Цена")
+                            ws.value(0, 2, "Категория")
+                            ws.value(0, 3, "Ед.изм")
+                            ws.value(0, 4, "Ккал")
+                            ws.value(0, 5, "Белки")
+                            ws.value(0, 6, "Жиры")
+                            ws.value(0, 7, "Углеводы")
+                            ws.value(0, 8, "Отходы(%)")
+                            ws.value(0, 9, "Варка(%)")
+                            ws.value(0, 10, "Жарка(%)")
+                            ws.value(0, 11, "Запекание(%)")
+                            ws.value(0, 12, "Тушение(%)")
+
+                            ingredients.forEachIndexed { index, ing ->
+                                val row = index + 1
+                                ws.value(row, 0, ing.name)
+                                ws.value(row, 1, ing.pricePerKg)
+                                ws.value(row, 2, ing.category)
+                                ws.value(row, 3, ing.unit)
+                                ws.value(row, 4, ing.calories)
+                                ws.value(row, 5, ing.protein)
+                                ws.value(row, 6, ing.fat)
+                                ws.value(row, 7, ing.carbs)
+                                ws.value(row, 8, ing.wastePercent)
+                                ws.value(row, 9, ing.lossBoiling)
+                                ws.value(row, 10, ing.lossFrying)
+                                ws.value(row, 11, ing.lossBaking)
+                                ws.value(row, 12, ing.lossStewing)
+                            }
+                            wb.finish()
+                        }
+                    }
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(ctx, "Экспортировано в Excel", Toast.LENGTH_SHORT).show()
+                    }
+                } catch (e: Exception) {
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(ctx, "Ошибка экспорта: ${e.message}", Toast.LENGTH_LONG).show()
+                    }
+                }
+            }
+        }
+    }
+
+    // --- ИМПОРТ JSON (без изменений) ---
+    val importJsonLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
     ) { uri ->
         if (uri != null) {
@@ -109,7 +297,7 @@ fun IngredientManagerDialog(
                     db.foodReferenceDao().insertAll(customs)
 
                     refreshCounts()
-                    Toast.makeText(ctx, "Импортировано: базовых ${builtins.size}, своих ${customs.size}", Toast.LENGTH_LONG).show()
+                    Toast.makeText(ctx, "Импортировано JSON: базовых ${builtins.size}, своих ${customs.size}", Toast.LENGTH_LONG).show()
                 } catch (e: Exception) {
                     Toast.makeText(ctx, "Ошибка импорта: ${e.message}", Toast.LENGTH_LONG).show()
                 }
@@ -117,44 +305,9 @@ fun IngredientManagerDialog(
         }
     }
 
-    // Экспорт в файл
-    val exportLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.CreateDocument("application/json")
-    ) { uri ->
-        if (uri != null) {
-            scope.launch {
-                try {
-                    val all = db.foodReferenceDao().getAllList()
-                    val sb = StringBuilder()
-                    sb.append("[\n")
-                    all.forEachIndexed { i, ref ->
-                        sb.append("{")
-                        sb.append("\"name\":\"${jsonEscape(ref.name)}\",")
-                        sb.append("\"calories\":${ref.calories},")
-                        sb.append("\"protein\":${ref.protein},")
-                        sb.append("\"fat\":${ref.fat},")
-                        sb.append("\"carbs\":${ref.carbs},")
-                        sb.append("\"wastePercent\":${ref.wastePercent},")
-                        sb.append("\"source\":\"${ref.source}\"")
-                        sb.append("}")
-                        if (i < all.size - 1) sb.append(",")
-                        sb.append("\n")
-                    }
-                    sb.append("]")
-
-                    ctx.contentResolver.openOutputStream(uri)?.use { out ->
-                        out.write(sb.toString().toByteArray(Charsets.UTF_8))
-                    }
-                    Toast.makeText(ctx, "Экспортировано продуктов: ${all.size}", Toast.LENGTH_LONG).show()
-                } catch (e: Exception) {
-                    Toast.makeText(ctx, "Ошибка экспорта: ${e.message}", Toast.LENGTH_LONG).show()
-                }
-            }
-        }
-    }
-
     val filteredAndSorted = ingredients
         .filter { selectedCategory == "Все" || it.category == selectedCategory }
+        .filter { searchQuery.isBlank() || it.name.contains(searchQuery, ignoreCase = true) }
         .sortedWith(
             when (sortMode) {
                 "price_asc" -> compareBy { it.pricePerKg }
@@ -211,7 +364,24 @@ fun IngredientManagerDialog(
                     }
                 )
 
-                // Блок справочника
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = { searchQuery = it },
+                    label = { Text("Поиск ингредиента") },
+                    leadingIcon = { Icon(Icons.Default.Search, null) },
+                    trailingIcon = {
+                        if (searchQuery.isNotEmpty()) {
+                            IconButton(onClick = { searchQuery = "" }) {
+                                Icon(Icons.Default.Clear, "Очистить")
+                            }
+                        }
+                    },
+                    singleLine = true,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 8.dp)
+                )
+
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -219,84 +389,93 @@ fun IngredientManagerDialog(
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
                 ) {
                     Column(Modifier.padding(12.dp)) {
-                        Text("Справочник БЖУ", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-                        Text(
-                            "Базовых: $builtinCount · Своих: $customCount",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Spacer(Modifier.height(8.dp))
-
                         Row(
-                            Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            Modifier
+                                .fillMaxWidth()
+                                .clickable { isRefExpanded = !isRefExpanded },
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            OutlinedButton(
-                                onClick = { importLauncher.launch(arrayOf("application/json", "text/plain", "*/*")) },
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Icon(Icons.Default.CloudDownload, null, modifier = Modifier.size(16.dp))
-                                Spacer(Modifier.width(4.dp))
-                                Text("Импорт", style = MaterialTheme.typography.labelMedium)
+                            Column {
+                                Text("Справочник и Excel", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                                Text(
+                                    "Базовых: $builtinCount · Своих: $customCount",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
                             }
-                            OutlinedButton(
-                                onClick = {
-                                    val sdf = java.text.SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
-                                    exportLauncher.launch("food_reference_${sdf.format(java.util.Date())}.json")
-                                },
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Icon(Icons.Default.CloudUpload, null, modifier = Modifier.size(16.dp))
-                                Spacer(Modifier.width(4.dp))
-                                Text("Экспорт", style = MaterialTheme.typography.labelMedium)
-                            }
+                            Icon(
+                                imageVector = if (isRefExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                                contentDescription = null
+                            )
                         }
 
-                        Spacer(Modifier.height(4.dp))
+                        if (isRefExpanded) {
+                            Spacer(Modifier.height(12.dp))
 
-                        OutlinedButton(
-                            onClick = {
-                                scope.launch {
-                                    try {
-                                        db.foodReferenceDao().deleteBySource("builtin")
-                                        FoodReferenceInitializer.initializeIfNeeded(ctx)
-                                        refreshCounts()
-                                        Toast.makeText(ctx, "Заводской справочник восстановлен", Toast.LENGTH_SHORT).show()
-                                    } catch (e: Exception) {
-                                        Toast.makeText(ctx, "Ошибка: ${e.message}", Toast.LENGTH_LONG).show()
-                                    }
+                            Button(
+                                onClick = { downloadTemplateLauncher.launch("Шаблон_ингредиентов_PP_Kitchen.xlsx") },
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.tertiary)
+                            ) {
+                                Icon(Icons.Default.FileDownload, null, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(4.dp))
+                                Text("Скачать шаблон Excel", style = MaterialTheme.typography.labelMedium)
+                            }
+
+                            Spacer(Modifier.height(8.dp))
+
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Button(
+                                    onClick = { importExcelLauncher.launch(arrayOf("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "application/vnd.ms-excel")) },
+                                    modifier = Modifier.weight(1f),
+                                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                                ) {
+                                    Icon(Icons.Default.CloudDownload, null, modifier = Modifier.size(16.dp))
+                                    Spacer(Modifier.width(4.dp))
+                                    Text("Импорт Excel", style = MaterialTheme.typography.labelMedium)
                                 }
-                            },
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Icon(Icons.Default.Refresh, null, modifier = Modifier.size(16.dp))
-                            Spacer(Modifier.width(4.dp))
-                            Text("Сбросить к заводскому", style = MaterialTheme.typography.labelMedium)
-                        }
+                                Button(
+                                    onClick = {
+                                        val sdf = java.text.SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
+                                        exportExcelLauncher.launch("ingredients_${sdf.format(java.util.Date())}.xlsx")
+                                    },
+                                    modifier = Modifier.weight(1f),
+                                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)
+                                ) {
+                                    Icon(Icons.Default.CloudUpload, null, modifier = Modifier.size(16.dp))
+                                    Spacer(Modifier.width(4.dp))
+                                    Text("Экспорт в Excel", style = MaterialTheme.typography.labelMedium)
+                                }
+                            }
 
-                        Spacer(Modifier.height(4.dp))
+                            Spacer(Modifier.height(8.dp))
 
-                        // НОВАЯ КНОПКА: АВТО-ЗАПОЛНЕНИЕ ОТХОДОВ
-                        Button(
-                            onClick = {
-                                scope.launch {
-                                    var updatedCount = 0
-                                    ingredients.forEach { ing ->
-                                        val suggested = FoodReferenceInitializer.getSuggestedWaste(ing.name).toDoubleOrNull() ?: 0.0
-                                        if (suggested > 0 && ing.wastePercent == 0.0) {
-                                            db.ingredientDao().update(ing.copy(wastePercent = suggested))
-                                            updatedCount++
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                OutlinedButton(
+                                    onClick = { importJsonLauncher.launch(arrayOf("application/json", "text/plain", "*/*")) },
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Text("Импорт JSON", style = MaterialTheme.typography.labelSmall)
+                                }
+                                OutlinedButton(
+                                    onClick = {
+                                        scope.launch {
+                                            try {
+                                                db.foodReferenceDao().deleteBySource("builtin")
+                                                FoodReferenceInitializer.initializeIfNeeded(ctx)
+                                                refreshCounts()
+                                                Toast.makeText(ctx, "Справочник восстановлен", Toast.LENGTH_SHORT).show()
+                                            } catch (e: Exception) {
+                                                Toast.makeText(ctx, "Ошибка: ${e.message}", Toast.LENGTH_LONG).show()
+                                            }
                                         }
-                                    }
-                                    Toast.makeText(ctx, "Обновлено ингредиентов: $updatedCount", Toast.LENGTH_SHORT).show()
+                                    },
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Text("Сброс к заводскому", style = MaterialTheme.typography.labelSmall)
                                 }
-                            },
-                            modifier = Modifier.fillMaxWidth(),
-                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.tertiary)
-                        ) {
-                            Icon(Icons.Default.Refresh, null, modifier = Modifier.size(16.dp))
-                            Spacer(Modifier.width(4.dp))
-                            Text("Авто-заполнить % отходов", style = MaterialTheme.typography.labelMedium)
+                            }
                         }
                     }
                 }
@@ -324,7 +503,7 @@ fun IngredientManagerDialog(
 
                 if (filteredAndSorted.isEmpty()) {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Text("В этой категории ничего нет.", style = MaterialTheme.typography.bodyLarge)
+                        Text("Ничего не найдено.", style = MaterialTheme.typography.bodyLarge)
                     }
                 } else {
                     LazyColumn(
@@ -352,13 +531,14 @@ fun IngredientManagerDialog(
                                             "мл" -> "за 1 л"
                                             else -> "за 1 шт"
                                         }
-                                        Text("${String.format(Locale.US, "%.2f", ing.pricePerKg)} ₽ $priceLabel", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary)
+                                        if (ing.pricePerKg > 0) {
+                                            Text("${String.format(Locale.US, "%.2f", ing.pricePerKg)} ₽ $priceLabel", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary)
+                                        } else {
+                                            Text("Цена не указана", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error)
+                                        }
 
                                         if (ing.calories > 0) {
                                             Text("БЖУ: ${ing.calories} ккал / Б${ing.protein} Ж${ing.fat} У${ing.carbs}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                        }
-                                        if (ing.wastePercent > 0) {
-                                            Text("Отходы: ${ing.wastePercent}%", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
                                         }
                                     }
                                     IconButton(onClick = { scope.launch { db.ingredientDao().delete(ing) } }) {
@@ -419,9 +599,6 @@ fun IngredientManagerDialog(
         )
     }
 }
-
-private fun jsonEscape(s: String): String =
-    s.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n")
 
 @Composable
 fun CategoryManagerDialog(onDismiss: () -> Unit) {

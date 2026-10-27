@@ -2,8 +2,10 @@ package com.ppkitchen.data
 
 import android.content.Context
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
+import java.util.Locale
 
 object FoodReferenceInitializer {
 
@@ -11,36 +13,80 @@ object FoodReferenceInitializer {
         val db = AppDatabase.get(context)
         val dao = db.foodReferenceDao()
 
-        if (dao.count() > 100) return@withContext
+        if (dao.count() < 100) {
+            try {
+                val jsonString = context.assets.open("food_reference.json").bufferedReader().use { it.readText() }
+                val jsonArray = JSONArray(jsonString)
 
-        try {
-            val jsonString = context.assets.open("food_reference.json").bufferedReader().use { it.readText() }
-            val jsonArray = JSONArray(jsonString)
-
-            val items = mutableListOf<FoodReference>()
-            for (i in 0 until jsonArray.length()) {
-                val obj = jsonArray.getJSONObject(i)
-                val name = obj.getString("name")
-                items.add(
-                    FoodReference(
-                        name = name,
-                        calories = obj.getDouble("calories"),
-                        protein = obj.getDouble("protein"),
-                        fat = obj.getDouble("fat"),
-                        carbs = obj.getDouble("carbs"),
-                        source = "builtin",
-                        wastePercent = getSuggestedWaste(name).toDoubleOrNull() ?: 0.0
+                val items = mutableListOf<FoodReference>()
+                for (i in 0 until jsonArray.length()) {
+                    val obj = jsonArray.getJSONObject(i)
+                    val name = obj.getString("name")
+                    items.add(
+                        FoodReference(
+                            name = name,
+                            calories = obj.getDouble("calories"),
+                            protein = obj.getDouble("protein"),
+                            fat = obj.getDouble("fat"),
+                            carbs = obj.getDouble("carbs"),
+                            source = "builtin",
+                            wastePercent = getSuggestedWaste(name).toDoubleOrNull() ?: 0.0
+                        )
                     )
-                )
+                }
+                dao.insertAll(items)
+            } catch (e: Exception) {
+                e.printStackTrace()
             }
-            dao.insertAll(items)
-        } catch (e: Exception) {
-            e.printStackTrace()
+        }
+
+        syncReferenceToIngredients(db)
+    }
+
+    suspend fun syncReferenceToIngredients(db: AppDatabase) {
+        val references = db.foodReferenceDao().getAllList()
+        val existingIngredients = db.ingredientDao().getAll().first()
+
+        val existingNames = existingIngredients.map { it.name.lowercase(Locale.getDefault()) }.toSet()
+
+        references.forEach { ref ->
+            if (!existingNames.contains(ref.name.lowercase(Locale.getDefault()))) {
+                val unit = if (ref.name.contains("яйцо", ignoreCase = true)) "шт" else "г"
+
+                val category = when {
+                    ref.name.contains("курица", true) || ref.name.contains("говядина", true) || ref.name.contains("свинина", true) || ref.name.contains("индейка", true) || ref.name.contains("телятина", true) || ref.name.contains("баранина", true) -> "Мясо"
+                    ref.name.contains("рыба", true) || ref.name.contains("лосось", true) || ref.name.contains("треска", true) || ref.name.contains("минтай", true) || ref.name.contains("хек", true) || ref.name.contains("скумбрия", true) || ref.name.contains("сельдь", true) || ref.name.contains("тунец", true) || ref.name.contains("дорадо", true) || ref.name.contains("сибас", true) || ref.name.contains("форель", true) -> "Рыба"
+                    ref.name.contains("молоко", true) || ref.name.contains("сыр", true) || ref.name.contains("творог", true) || ref.name.contains("йогурт", true) || ref.name.contains("кефир", true) || ref.name.contains("сметана", true) || ref.name.contains("масло сливочное", true) -> "Молочка"
+                    ref.name.contains("картоф", true) || ref.name.contains("морков", true) || ref.name.contains("лук", true) || ref.name.contains("капуст", true) || ref.name.contains("помидор", true) || ref.name.contains("огурц", true) || ref.name.contains("перец", true) || ref.name.contains("баклажан", true) || ref.name.contains("кабачк", true) -> "Овощи"
+                    ref.name.contains("яблок", true) || ref.name.contains("банан", true) || ref.name.contains("апельсин", true) || ref.name.contains("лимон", true) || ref.name.contains("груш", true) || ref.name.contains("виноград", true) || ref.name.contains("клубник", true) -> "Фрукты"
+                    ref.name.contains("рис", true) || ref.name.contains("гречк", true) || ref.name.contains("макарон", true) || ref.name.contains("пшено", true) || ref.name.contains("овсян", true) || ref.name.contains("мука", true) -> "Крупы"
+                    else -> "Прочее"
+                }
+
+                val loss = getSuggestedHeatLoss(ref.name).toDoubleOrNull() ?: 0.0
+
+                val newIng = Ingredient(
+                    name = ref.name,
+                    pricePerKg = 0.0,
+                    unit = unit,
+                    category = category,
+                    calories = ref.calories,
+                    protein = ref.protein,
+                    fat = ref.fat,
+                    carbs = ref.carbs,
+                    wastePercent = ref.wastePercent,
+                    lossBoiling = loss,
+                    lossFrying = loss,
+                    lossBaking = loss,
+                    lossStewing = loss
+                )
+                db.ingredientDao().insert(newIng)
+            }
         }
     }
 
     fun getSuggestedWaste(name: String): String {
-        val n = name.lowercase().trim()
+        val n = name.lowercase(Locale.getDefault()).trim()
         val waste = when {
             n.contains("картоф") -> 25.0
             n.contains("морков") -> 20.0
@@ -99,9 +145,8 @@ object FoodReferenceInitializer {
         return if (waste > 0) waste.toString() else ""
     }
 
-    // ВОЗВРАЩАЕМ ФУНКЦИЮ, КОТОРУЮ ИЩЕТ INGREDIENTEDITSCREEN
     fun getSuggestedHeatLoss(name: String): String {
-        val n = name.lowercase().trim()
+        val n = name.lowercase(Locale.getDefault()).trim()
         val loss = when {
             n.contains("курица") || n.contains("куриц") || n.contains("индейка") || n.contains("индюш") -> {
                 if (n.contains("фарш")) 25.0 else 35.0
@@ -117,10 +162,9 @@ object FoodReferenceInitializer {
         return if (loss > 0) loss.toString() else ""
     }
 
-    // НОВАЯ ФУНКЦИЯ ДЛЯ РАСЧЕТА ПОТЕРЬ В ЗАВИСИМОСТИ ОТ СПОСОБА
     fun getHeatLossForMethod(ingName: String, method: String): Double {
         if (method == "Сырой") return 0.0
-        val n = ingName.lowercase().trim()
+        val n = ingName.lowercase(Locale.getDefault()).trim()
 
         val isMeat = n.contains("курица") || n.contains("говядина") || n.contains("свинина") || n.contains("индейка") || n.contains("телятина") || n.contains("баранина")
         val isFish = n.contains("рыба") || n.contains("лосось") || n.contains("треска") || n.contains("минтай") || n.contains("хек") || n.contains("скумбрия")

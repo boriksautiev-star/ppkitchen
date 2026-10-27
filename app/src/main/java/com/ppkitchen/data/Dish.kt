@@ -21,8 +21,19 @@ data class Ingredient(
     val fat: Double = 0.0,
     val carbs: Double = 0.0,
     val wastePercent: Double = 0.0,
-    val heatLossPercent: Double = 0.0
-)
+    val lossBoiling: Double = 0.0,   // Варка
+    val lossFrying: Double = 0.0,    // Жарка
+    val lossBaking: Double = 0.0,    // Запекание
+    val lossStewing: Double = 0.0    // Тушение
+) {
+    fun getLossForMethod(method: String): Double = when (method) {
+        "Варка" -> lossBoiling
+        "Жарка" -> lossFrying
+        "Запекание" -> lossBaking
+        "Тушение" -> lossStewing
+        else -> 0.0
+    }
+}
 
 @Entity(tableName = "dish_categories")
 data class DishCategory(
@@ -48,6 +59,6 @@ data class Dish(
 data class DishIngredient(
     val dishId: Long,
     val ingredientId: Long,
-    val amount: Double, // НЕТТО (чистый вес до готовки)
-    val cookingMethod: String = "Сырой" // НОВОЕ ПОЛЕ: Способ обработки
+    val amount: Double,
+    val cookingMethod: String = "Сырой"
 )
