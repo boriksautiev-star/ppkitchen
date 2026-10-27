@@ -15,7 +15,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         FoodReference::class, DishCategory::class,
         MenuTemplate::class, MenuDay::class, MenuDayDish::class, Ration::class
     ],
-    version = 33,
+    version = 34,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -377,6 +377,13 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_33_34 = object : Migration(33, 34) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE clients ADD COLUMN preferredTemplateId INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE clients ADD COLUMN preferredRationId INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
         fun get(context: Context): AppDatabase =
             INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
@@ -394,7 +401,7 @@ abstract class AppDatabase : RoomDatabase() {
                         MIGRATION_23_24, MIGRATION_24_25, MIGRATION_25_26,
                         MIGRATION_26_27, MIGRATION_27_28, MIGRATION_28_29,
                         MIGRATION_29_30, MIGRATION_30_31, MIGRATION_31_32,
-                        MIGRATION_32_33
+                        MIGRATION_32_33, MIGRATION_33_34
                     )
                     .fallbackToDestructiveMigrationOnDowngrade()
                     .build()

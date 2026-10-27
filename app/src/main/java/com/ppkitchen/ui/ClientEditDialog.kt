@@ -6,8 +6,10 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogProperties
+import com.ppkitchen.data.AppDatabase
 import com.ppkitchen.data.Client
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -17,7 +19,12 @@ fun ClientEditDialog(
     onSave: (Client) -> Unit,
     onCancel: () -> Unit
 ) {
+    val ctx = LocalContext.current
+    val db = remember { AppDatabase.get(ctx) }
     val isEdit = client != null
+
+    val menuTemplates by db.menuTemplateDao().getAll().collectAsState(initial = emptyList())
+    val rations by db.rationDao().getAll().collectAsState(initial = emptyList())
 
     var firstName by remember { mutableStateOf(client?.firstName ?: "") }
     var lastName by remember { mutableStateOf(client?.lastName ?: "") }
@@ -26,6 +33,13 @@ fun ClientEditDialog(
     var comment by remember { mutableStateOf(client?.comment ?: "") }
     var restrictions by remember { mutableStateOf(client?.restrictions ?: "") }
     var status by remember { mutableStateOf(client?.status ?: "активен") }
+
+    // НОВЫЕ ПОЛЯ
+    var preferredTemplateId by remember { mutableStateOf(client?.preferredTemplateId ?: 0L) }
+    var preferredRationId by remember { mutableStateOf(client?.preferredRationId ?: 0L) }
+
+    var showTemplateMenu by remember { mutableStateOf(false) }
+    var showRationMenu by remember { mutableStateOf(false) }
 
     AlertDialog(
         onDismissRequest = onCancel,
@@ -88,6 +102,61 @@ fun ClientEditDialog(
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
+
+                HorizontalDivider(Modifier.padding(vertical = 4.dp))
+                Text("Пищевые предпочтения", style = MaterialTheme.typography.titleSmall)
+
+                // ВЫБОР ШАБЛОНА МЕНЮ
+                Box {
+                    OutlinedButton(
+                        onClick = { showTemplateMenu = true },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        val currentName = menuTemplates.find { it.id == preferredTemplateId }?.name ?: "Без меню"
+                        Text("Меню: $currentName")
+                    }
+                    DropdownMenu(
+                        expanded = showTemplateMenu,
+                        onDismissRequest = { showTemplateMenu = false }
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("Без меню") },
+                            onClick = { preferredTemplateId = 0L; showTemplateMenu = false }
+                        )
+                        menuTemplates.forEach { t ->
+                            DropdownMenuItem(
+                                text = { Text(t.name) },
+                                onClick = { preferredTemplateId = t.id; showTemplateMenu = false }
+                            )
+                        }
+                    }
+                }
+
+                // ВЫБОР РАЦИОНА
+                Box {
+                    OutlinedButton(
+                        onClick = { showRationMenu = true },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        val currentName = rations.find { it.id == preferredRationId }?.name ?: "Без рациона"
+                        Text("Рацион: $currentName")
+                    }
+                    DropdownMenu(
+                        expanded = showRationMenu,
+                        onDismissRequest = { showRationMenu = false }
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("Без рациона") },
+                            onClick = { preferredRationId = 0L; showRationMenu = false }
+                        )
+                        rations.forEach { r ->
+                            DropdownMenuItem(
+                                text = { Text(r.name) },
+                                onClick = { preferredRationId = r.id; showRationMenu = false }
+                            )
+                        }
+                    }
+                }
             }
         },
         confirmButton = {
@@ -101,7 +170,9 @@ fun ClientEditDialog(
                         address = address.trim(),
                         comment = comment.trim(),
                         restrictions = restrictions.trim(),
-                        status = status.trim()
+                        status = status.trim(),
+                        preferredTemplateId = preferredTemplateId,
+                        preferredRationId = preferredRationId
                     )
                     onSave(newClient)
                 },

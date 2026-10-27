@@ -12,7 +12,9 @@ data class Client(
     val address: String = "",
     val comment: String = "",
     val restrictions: String = "",
-    val status: String = "активен"
+    val status: String = "активен",
+    val preferredTemplateId: Long = 0, // НОВОЕ: Предпочитаемый шаблон меню
+    val preferredRationId: Long = 0    // НОВОЕ: Предпочитаемый рацион
 ) {
     val fullName: String get() =
         listOf(firstName, lastName).filter { it.isNotBlank() }.joinToString(" ")

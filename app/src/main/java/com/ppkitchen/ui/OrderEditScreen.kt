@@ -16,6 +16,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
@@ -46,6 +47,7 @@ fun OrderDialog(
     val isEdit = existingOrder != null
     val wasOpenEnded = existingOrder?.isOpenEnded == true
     val isClientLocked = preselectedClient != null
+    val keyboardController = LocalSoftwareKeyboardController.current
 
     val menuTemplates by db.menuTemplateDao().getAll().collectAsState(initial = emptyList())
     val rations by db.rationDao().getAll().collectAsState(initial = emptyList())
@@ -53,6 +55,9 @@ fun OrderDialog(
     var mode by remember { mutableStateOf("existing") }
     var query by remember { mutableStateOf("") }
     var selectedClient by remember { mutableStateOf<Client?>(preselectedClient) }
+
+    // НОВОЕ СОСТОЯНИЕ: открыт ли поиск клиента
+    var isSearchingClient by remember { mutableStateOf(preselectedClient == null) }
 
     var newFirstName by remember { mutableStateOf("") }
     var newLastName by remember { mutableStateOf("") }
@@ -95,6 +100,22 @@ fun OrderDialog(
 
     var showMenuSelector by remember { mutableStateOf(false) }
     var showRationSelector by remember { mutableStateOf(false) }
+
+    // АВТОПОДСТАНОВКА ИЗ КАРТОЧКИ КЛИЕНТА
+    LaunchedEffect(selectedClient) {
+        if (selectedClient != null) {
+            if (selectedMenuTemplateId == 0L && selectedClient!!.preferredTemplateId > 0) {
+                selectedMenuTemplateId = selectedClient!!.preferredTemplateId
+            }
+            if (selectedRationId == 0L && selectedClient!!.preferredRationId > 0) {
+                selectedRationId = selectedClient!!.preferredRationId
+                val ration = rations.find { it.id == selectedRationId }
+                if (ration != null && ration.calories > 0) {
+                    calories = ration.calories.toString()
+                }
+            }
+        }
+    }
 
     val initialActiveDiscount = remember(existingOrder) {
         if (existingOrder != null) discountForDay(existingOrder, today) else 0
@@ -336,21 +357,66 @@ fun OrderDialog(
                             HorizontalDivider()
 
                             if (mode == "existing") {
-                                OutlinedTextField(value = query, onValueChange = { query = it }, label = { Text("Поиск по имени или телефону") }, leadingIcon = { Icon(Icons.Default.Search, null) }, trailingIcon = { if (query.isNotEmpty()) { IconButton(onClick = { query = "" }) { Icon(Icons.Default.Clear, "Очистить") } } }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                                if (clients.isEmpty()) Text("В базе нет клиентов. Выберите «Новый клиент».")
-                                else if (filtered.isEmpty()) Text("Ничего не найдено")
-                                else {
-                                    Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(8.dp)) {
-                                        Column(Modifier.fillMaxWidth().heightIn(max = 260.dp).verticalScroll(rememberScrollState())) {
-                                            filtered.forEach { c ->
-                                                val isSelected = selectedClient?.id == c.id
-                                                Row(Modifier.fillMaxWidth().background(if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface).clickable { selectedClient = c }.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                                                    RadioButton(selected = isSelected, onClick = { selectedClient = c })
-                                                    Spacer(Modifier.width(4.dp))
-                                                    Column {
-                                                        Text(c.fullName, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal)
-                                                        if (c.phone.isNotBlank()) Text(c.phone, style = MaterialTheme.typography.bodySmall)
-                                                        if (c.restrictions.isNotBlank()) Text("🚫 ${c.restrictions}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
+                                // ИСПРАВЛЕНИЕ: Показываем карточку, если клиент выбран и поиск закрыт
+                                if (selectedClient != null && !isSearchingClient) {
+                                    Card(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+                                        Row(Modifier.padding(12.dp).fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                                            Column {
+                                                Text(selectedClient!!.fullName, fontWeight = FontWeight.Bold)
+                                                if (selectedClient!!.phone.isNotBlank()) Text(selectedClient!!.phone, style = MaterialTheme.typography.bodySmall)
+                                                if (selectedClient!!.restrictions.isNotBlank()) Text("🚫 ${selectedClient!!.restrictions}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
+                                            }
+                                            TextButton(onClick = {
+                                                selectedClient = null
+                                                isSearchingClient = true
+                                                query = ""
+                                            }) {
+                                                Text("Изменить")
+                                            }
+                                        }
+                                    }
+                                } else {
+                                    OutlinedTextField(
+                                        value = query,
+                                        onValueChange = { query = it },
+                                        label = { Text("Поиск по имени или телефону") },
+                                        leadingIcon = { Icon(Icons.Default.Search, null) },
+                                        trailingIcon = { if (query.isNotEmpty()) { IconButton(onClick = { query = "" }) { Icon(Icons.Default.Clear, "Очистить") } } },
+                                        singleLine = true,
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+                                    if (clients.isEmpty()) Text("В базе нет клиентов. Выберите «Новый клиент».")
+                                    else if (filtered.isEmpty()) Text("Ничего не найдено")
+                                    else {
+                                        Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(8.dp)) {
+                                            Column(Modifier.fillMaxWidth().heightIn(max = 260.dp).verticalScroll(rememberScrollState())) {
+                                                filtered.forEach { c ->
+                                                    val isSelected = selectedClient?.id == c.id
+                                                    Row(
+                                                        Modifier.fillMaxWidth()
+                                                            .background(if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface)
+                                                            .clickable {
+                                                                selectedClient = c
+                                                                isSearchingClient = false
+                                                                keyboardController?.hide()
+                                                            }
+                                                            .padding(12.dp),
+                                                        verticalAlignment = Alignment.CenterVertically
+                                                    ) {
+                                                        RadioButton(
+                                                            selected = isSelected,
+                                                            onClick = {
+                                                                selectedClient = c
+                                                                isSearchingClient = false
+                                                                keyboardController?.hide()
+                                                            }
+                                                        )
+                                                        Spacer(Modifier.width(4.dp))
+                                                        Column {
+                                                            Text(c.fullName, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal)
+                                                            if (c.phone.isNotBlank()) Text(c.phone, style = MaterialTheme.typography.bodySmall)
+                                                            if (c.restrictions.isNotBlank()) Text("🚫 ${c.restrictions}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
+                                                        }
                                                     }
                                                 }
                                             }
@@ -469,7 +535,6 @@ fun OrderDialog(
                                     text = { Text(displayName) },
                                     onClick = {
                                         selectedRationId = r.id
-                                        // АВТОПОДСТАНОВКА КАЛОРИЙ
                                         if (r.calories > 0) {
                                             calories = r.calories.toString()
                                         }
