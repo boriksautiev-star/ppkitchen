@@ -37,7 +37,8 @@ import java.util.Locale
 @Composable
 fun IngredientManagerDialog(
     ingredients: List<Ingredient>,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    onNavigateToOcr: () -> Unit // <--- БЕЗ ПАРАМЕТРОВ
 ) {
     val ctx = LocalContext.current
     val db = remember { AppDatabase.get(ctx) }
@@ -93,7 +94,6 @@ fun IngredientManagerDialog(
                             ws.value(0, 11, "Запекание(%)")
                             ws.value(0, 12, "Тушение(%)")
 
-                            // Пример
                             ws.value(1, 0, "Курица грудка")
                             ws.value(1, 1, 350.0)
                             ws.value(1, 2, "Мясо")
@@ -253,7 +253,7 @@ fun IngredientManagerDialog(
         }
     }
 
-    // --- ИМПОРТ JSON (без изменений) ---
+    // --- ИМПОРТ JSON ---
     val importJsonLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
     ) { uri ->
@@ -333,6 +333,11 @@ fun IngredientManagerDialog(
                     title = "Ингредиенты",
                     onBack = onDismiss,
                     actions = {
+                        // --- КНОПКА СКАНЕРА ---
+                        IconButton(onClick = onNavigateToOcr) {
+                            Icon(Icons.Default.PhotoCamera, contentDescription = "Сканер справочников")
+                        }
+                        // ----------------------
                         IconButton(onClick = { showCategoryManager = true }) {
                             Icon(Icons.Default.Folder, "Категории")
                         }

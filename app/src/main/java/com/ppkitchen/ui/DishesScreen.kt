@@ -24,12 +24,15 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.ppkitchen.data.*
+import com.ppkitchen.ocr.OcrMode
 import kotlinx.coroutines.launch
 import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun DishesScreen() {
+fun DishesScreen(
+    onNavigateToOcr: (OcrMode) -> Unit
+) {
     val ctx = LocalContext.current
     val db = remember { AppDatabase.get(ctx) }
     val scope = rememberCoroutineScope()
@@ -201,7 +204,14 @@ fun DishesScreen() {
     }
 
     if (showIngredientDialog) {
-        IngredientManagerDialog(ingredients = ingredients, onDismiss = { showIngredientDialog = false })
+        IngredientManagerDialog(
+            ingredients = ingredients,
+            onDismiss = { showIngredientDialog = false },
+            onNavigateToOcr = { // <--- ЛЯМБДА БЕЗ ПАРАМЕТРОВ
+                showIngredientDialog = false
+                onNavigateToOcr(OcrMode.REFERENCE) // <--- ВЫЗОВ С ПАРАМЕТРОМ
+            }
+        )
     }
 
     if (showCategoryManager) {
@@ -276,6 +286,8 @@ fun DishesScreen() {
     }
 }
 
+// Функции DishDetailScreen, DishCategoryManagerDialog, EditDishCategoryDialog
+// остались без изменений, они ниже...
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DishDetailScreen(

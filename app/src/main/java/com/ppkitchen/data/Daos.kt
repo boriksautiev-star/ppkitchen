@@ -196,6 +196,13 @@ interface IngredientDao {
     @Query("SELECT * FROM ingredients ORDER BY name")
     fun getAll(): Flow<List<Ingredient>>
 
+    // --- НОВЫЕ МЕТОДЫ ДЛЯ OCR ---
+    @Query("SELECT * FROM ingredients")
+    suspend fun getAllOnce(): List<Ingredient>
+
+    @Query("SELECT * FROM ingredients WHERE name = :name COLLATE NOCASE LIMIT 1")
+    suspend fun findByName(name: String): Ingredient?
+
     @Insert
     suspend fun insert(ingredient: Ingredient): Long
 
@@ -319,7 +326,6 @@ interface MenuDayDao {
     @Query("SELECT * FROM menu_days WHERE templateId = :templateId ORDER BY dayNumber")
     fun getDaysForTemplate(templateId: Long): Flow<List<MenuDay>>
 
-    // ВОТ ЭТОТ МЕТОД МЫ ДОБАВИЛИ:
     @Query("SELECT * FROM menu_days")
     suspend fun getAllOnce(): List<MenuDay>
 
@@ -335,7 +341,6 @@ interface MenuDayDishDao {
     @Query("SELECT * FROM menu_day_dishes WHERE menuDayId = :menuDayId")
     fun getDishesForDay(menuDayId: Long): Flow<List<MenuDayDish>>
 
-    // ВОТ ЭТОТ МЕТОД МЫ ДОБАВИЛИ:
     @Query("SELECT * FROM menu_day_dishes")
     suspend fun getAllOnce(): List<MenuDayDish>
 
@@ -345,6 +350,7 @@ interface MenuDayDishDao {
     @Query("DELETE FROM menu_day_dishes WHERE menuDayId = :menuDayId")
     suspend fun deleteForDay(menuDayId: Long)
 }
+
 @Dao
 interface RationDao {
     @Query("SELECT * FROM rations ORDER BY calories")
