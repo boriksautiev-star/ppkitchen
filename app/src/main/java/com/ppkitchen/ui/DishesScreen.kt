@@ -25,13 +25,15 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.ppkitchen.data.*
 import com.ppkitchen.ocr.OcrMode
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DishesScreen(
-    onNavigateToOcr: (OcrMode) -> Unit
+    onNavigateToOcr: (OcrMode) -> Unit // <-- ВАЖНО: Параметр есть
 ) {
     val ctx = LocalContext.current
     val db = remember { AppDatabase.get(ctx) }
@@ -42,16 +44,25 @@ fun DishesScreen(
     val dishIngredients by db.dishIngredientDao().getAll().collectAsState(initial = emptyList())
     val dishCategories by db.dishCategoryDao().getAll().collectAsState(initial = emptyList())
 
-    var selectedTab by remember { mutableIntStateOf(0) }
+    var avgPrices by remember { mutableStateOf<Map<Long, Double>>(emptyMap()) }
 
+    LaunchedEffect(ingredients) {
+        if (ingredients.isNotEmpty()) {
+            withContext(Dispatchers.IO) {
+                val thirtyDaysAgo = System.currentTimeMillis() - 30L * 24 * 60 * 60 * 1000
+                val avgList = db.ingredientPriceDao().getAveragePricesSince(thirtyDaysAgo)
+                avgPrices = avgList.associate { it.ingredientId to it.avgPrice }
+            }
+        }
+    }
+
+    var selectedTab by remember { mutableIntStateOf(0) }
     var showIngredientDialog by remember { mutableStateOf(false) }
     var showCreateDish by remember { mutableStateOf(false) }
     var showCategoryManager by remember { mutableStateOf(false) }
-
     var viewingDish by remember { mutableStateOf<Dish?>(null) }
     var editingDish by remember { mutableStateOf<Dish?>(null) }
     var dishToDelete by remember { mutableStateOf<Dish?>(null) }
-
     var selectedCategory by remember { mutableStateOf("Все") }
     var sortMode by remember { mutableStateOf("name") }
     var showSortMenu by remember { mutableStateOf(false) }
@@ -64,11 +75,12 @@ fun DishesScreen(
             if (ing != null) {
                 val waste = ing.wastePercent.coerceIn(0.0, 99.9)
                 val bruttoAmount = if (waste > 0) di.amount / ((100.0 - waste) / 100.0) else di.amount
+                val currentPrice = avgPrices[ing.id] ?: ing.pricePerKg
 
                 cost += if (ing.unit == "шт") {
-                    bruttoAmount * ing.pricePerKg
+                    bruttoAmount * currentPrice
                 } else {
-                    (bruttoAmount / 1000.0) * ing.pricePerKg
+                    (bruttoAmount / 1000.0) * currentPrice
                 }
             }
         }
@@ -207,9 +219,9 @@ fun DishesScreen(
         IngredientManagerDialog(
             ingredients = ingredients,
             onDismiss = { showIngredientDialog = false },
-            onNavigateToOcr = { // <--- ЛЯМБДА БЕЗ ПАРАМЕТРОВ
+            onNavigateToOcr = {
                 showIngredientDialog = false
-                onNavigateToOcr(OcrMode.REFERENCE) // <--- ВЫЗОВ С ПАРАМЕТРОМ
+                onNavigateToOcr(OcrMode.REFERENCE)
             }
         )
     }
@@ -243,6 +255,7 @@ fun DishesScreen(
             dish = viewingDish!!,
             ingredients = ingredients,
             dishIngredients = dishIngredients,
+            avgPrices = avgPrices,
             cost = calculateCost(viewingDish!!.id),
             onEdit = {
                 editingDish = viewingDish
@@ -286,14 +299,13 @@ fun DishesScreen(
     }
 }
 
-// Функции DishDetailScreen, DishCategoryManagerDialog, EditDishCategoryDialog
-// остались без изменений, они ниже...
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DishDetailScreen(
     dish: Dish,
     ingredients: List<Ingredient>,
     dishIngredients: List<DishIngredient>,
+    avgPrices: Map<Long, Double>,
     cost: Double,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
@@ -371,6 +383,8 @@ fun DishDetailScreen(
                                             else -> ing.unit
                                         }
 
+                                        val priceToShow = avgPrices[ing.id] ?: ing.pricePerKg
+
                                         Row(
                                             Modifier.fillMaxWidth(),
                                             horizontalArrangement = Arrangement.SpaceBetween,
@@ -380,6 +394,7 @@ fun DishDetailScreen(
                                                 Text(ing.name, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
                                                 Text("Способ обработки: ${di.cookingMethod}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.tertiary)
                                                 if (waste > 0) Text("Холодные потери: $waste%", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
+                                                Text("Ср. цена: ${String.format(Locale.US, "%.2f", priceToShow)} ₽/кг", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                             }
                                             Column(horizontalAlignment = Alignment.End) {
                                                 Text("Выход: $outputStr $displayUnit", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)

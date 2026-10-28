@@ -21,6 +21,7 @@ import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.LocalShipping
+import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.*
@@ -32,6 +33,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogProperties
 import com.ppkitchen.data.*
+import com.ppkitchen.ocr.OcrMode
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*
@@ -312,7 +314,10 @@ fun hasNextOrder(order: Order, allOrders: List<Order>): Boolean {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun OrdersScreen(onOpenCouriers: () -> Unit) {
+fun OrdersScreen(
+    onOpenCouriers: () -> Unit,
+    onNavigateToOcr: (OcrMode) -> Unit
+) {
     val ctx = LocalContext.current
     val db = remember { AppDatabase.get(ctx) }
     val scope = rememberCoroutineScope()
@@ -325,7 +330,6 @@ fun OrdersScreen(onOpenCouriers: () -> Unit) {
     var editingOrder by remember { mutableStateOf<Order?>(null) }
     var shareMenuExpanded by remember { mutableStateOf(false) }
 
-    // Состояние для открытия экрана списка закупок
     var showShoppingListScreen by remember { mutableStateOf(false) }
 
     var showCourierPicker by remember { mutableStateOf(false) }
@@ -381,6 +385,10 @@ fun OrdersScreen(onOpenCouriers: () -> Unit) {
             CompactTopBar(
                 title = if (selectedDate == today) "Доставка на сегодня" else "Доставка на $selectedDate",
                 actions = {
+                    IconButton(onClick = { onNavigateToOcr(OcrMode.INVOICE) }) {
+                        Icon(Icons.Default.PhotoCamera, "Сканер накладных")
+                    }
+
                     IconButton(onClick = onOpenCouriers) {
                         Icon(Icons.Default.LocalShipping, "Курьеры")
                     }
@@ -434,7 +442,7 @@ fun OrdersScreen(onOpenCouriers: () -> Unit) {
                                 text = { Text("Список закупок") },
                                 onClick = {
                                     shareMenuExpanded = false
-                                    showShoppingListScreen = true // ОТКРЫВАЕМ НОВЫЙ ЭКРАН
+                                    showShoppingListScreen = true
                                 }
                             )
                             DropdownMenuItem(
@@ -831,7 +839,6 @@ fun OrdersScreen(onOpenCouriers: () -> Unit) {
         }
     }
 
-    // НОВЫЙ ЭКРАН СПИСКА ЗАКУПОК
     if (showShoppingListScreen) {
         ShoppingListScreen(
             startDate = selectedDate,
@@ -1534,7 +1541,7 @@ fun CourierDayDetailDialog(
                 }
 
                 Spacer(Modifier.height(8.dp))
-                Divider()
+                HorizontalDivider()
                 Spacer(Modifier.height(8.dp))
 
                 Text(
@@ -1796,7 +1803,7 @@ fun DistributionDialog(
                 }
 
                 Spacer(Modifier.height(8.dp))
-                Divider()
+                HorizontalDivider()
                 Spacer(Modifier.height(8.dp))
 
                 Text(
@@ -1858,7 +1865,7 @@ fun SectionHeader(text: String, count: Int, color: androidx.compose.ui.graphics.
             )
         }
     }
-    Divider(color = color.copy(alpha = 0.3f))
+    HorizontalDivider(color = color.copy(alpha = 0.3f))
 }
 
 @Composable

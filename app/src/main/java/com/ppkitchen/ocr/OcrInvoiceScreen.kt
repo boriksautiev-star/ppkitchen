@@ -18,18 +18,20 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height // <-- ДОБАВЛЕН ИМПОРТ
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.text.selection.SelectionContainer // <-- НОВЫЙ ИМПОРТ
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -38,6 +40,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -51,6 +54,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -65,7 +69,7 @@ import kotlinx.coroutines.withContext
 fun OcrInvoiceScreen(
     mode: OcrMode,
     onBack: () -> Unit,
-    onSave: (List<InvoiceRowDraft>) -> Unit,
+    onSave: (List<InvoiceRowDraft>, Boolean) -> Unit,
     viewModel: OcrViewModel = viewModel()
 ) {
     val context = LocalContext.current
@@ -209,7 +213,7 @@ private fun CameraBlock(
                     ) {
                         CircularProgressIndicator()
                         if (status != null) {
-                            Spacer(Modifier.width(16.dp))
+                            Spacer(Modifier.height(12.dp))
                             Text(text = status, style = MaterialTheme.typography.bodyLarge)
                         }
                     }
@@ -222,7 +226,6 @@ private fun CameraBlock(
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             if (error != null) {
-                // Оборачиваем текст в SelectionContainer, чтобы его можно было скопировать
                 SelectionContainer {
                     Text(
                         text = error,
@@ -265,9 +268,11 @@ private fun DraftList(
     rows: List<InvoiceRowDraft>,
     mode: OcrMode,
     viewModel: OcrViewModel,
-    onSave: (List<InvoiceRowDraft>) -> Unit,
+    onSave: (List<InvoiceRowDraft>, Boolean) -> Unit,
     onBack: () -> Unit
 ) {
+    var updateDb by remember { mutableStateOf(true) }
+
     Column(modifier = Modifier.fillMaxSize()) {
         LazyColumn(
             modifier = Modifier.weight(1f).fillMaxWidth(),
@@ -283,19 +288,44 @@ private fun DraftList(
                 )
             }
         }
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(12.dp),
-            verticalAlignment = Alignment.CenterVertically
+
+        Surface(
+            color = MaterialTheme.colorScheme.surfaceVariant,
+            modifier = Modifier.fillMaxWidth()
         ) {
-            OutlinedButton(onClick = viewModel::addEmptyRow) { Text("Добавить") }
-            Spacer(Modifier.weight(1f))
-            OutlinedButton(onClick = viewModel::reset) { Text("Сбросить") }
-            Spacer(Modifier.width(8.dp))
-            Button(
-                onClick = { onSave(rows.filter { row -> row.name.isNotBlank() }) },
-                enabled = rows.any { row -> row.name.isNotBlank() }
-            ) {
-                Text("Сохранить")
+            Column(Modifier.padding(12.dp)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Checkbox(
+                        checked = updateDb,
+                        onCheckedChange = { updateDb = it }
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Column {
+                        Text("Обновить цены в базе", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+                        Text("Если снять галочку, цены не изменятся", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+
+                Spacer(Modifier.height(12.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    OutlinedButton(onClick = viewModel::addEmptyRow) { Text("Добавить") }
+                    Spacer(Modifier.weight(1f))
+                    OutlinedButton(onClick = viewModel::reset) { Text("Сбросить") }
+                    Spacer(Modifier.width(8.dp))
+                    Button(
+                        onClick = { onSave(rows.filter { row -> row.name.isNotBlank() }, updateDb) },
+                        enabled = rows.any { row -> row.name.isNotBlank() }
+                    ) {
+                        Text("Сохранить")
+                    }
+                }
             }
         }
     }

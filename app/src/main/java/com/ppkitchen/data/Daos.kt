@@ -8,6 +8,12 @@ data class CalorieStat(
     val count: Int
 )
 
+// Вспомогательный класс для получения средних цен
+data class IngredientAvgPrice(
+    val ingredientId: Long,
+    val avgPrice: Double
+)
+
 @Dao
 interface ClientDao {
     @Query("SELECT * FROM clients ORDER BY firstName, lastName")
@@ -196,7 +202,6 @@ interface IngredientDao {
     @Query("SELECT * FROM ingredients ORDER BY name")
     fun getAll(): Flow<List<Ingredient>>
 
-    // --- НОВЫЕ МЕТОДЫ ДЛЯ OCR ---
     @Query("SELECT * FROM ingredients")
     suspend fun getAllOnce(): List<Ingredient>
 
@@ -211,6 +216,24 @@ interface IngredientDao {
 
     @Delete
     suspend fun delete(ingredient: Ingredient)
+}
+
+@Dao
+interface IngredientPriceDao {
+    @Insert
+    suspend fun insert(price: IngredientPrice)
+
+    // Получаем среднюю цену для каждого ингредиента за указанный период (timestamp)
+    @Query("""
+        SELECT ingredientId, AVG(price) as avgPrice 
+        FROM ingredient_prices 
+        WHERE date >= :sinceDate 
+        GROUP BY ingredientId
+    """)
+    suspend fun getAveragePricesSince(sinceDate: Long): List<IngredientAvgPrice>
+
+    @Query("SELECT * FROM ingredient_prices ORDER BY date DESC")
+    fun getAllHistory(): Flow<List<IngredientPrice>>
 }
 
 @Dao

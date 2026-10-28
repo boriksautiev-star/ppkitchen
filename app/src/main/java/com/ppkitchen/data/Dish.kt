@@ -21,10 +21,10 @@ data class Ingredient(
     val fat: Double = 0.0,
     val carbs: Double = 0.0,
     val wastePercent: Double = 0.0,
-    val lossBoiling: Double = 0.0,   // Варка
-    val lossFrying: Double = 0.0,    // Жарка
-    val lossBaking: Double = 0.0,    // Запекание
-    val lossStewing: Double = 0.0    // Тушение
+    val lossBoiling: Double = 0.0,
+    val lossFrying: Double = 0.0,
+    val lossBaking: Double = 0.0,
+    val lossStewing: Double = 0.0
 ) {
     fun getLossForMethod(method: String): Double = when (method) {
         "Варка" -> lossBoiling
@@ -34,6 +34,15 @@ data class Ingredient(
         else -> 0.0
     }
 }
+
+// НОВАЯ ТАБЛИЦА ДЛЯ ИСТОРИИ ЦЕН
+@Entity(tableName = "ingredient_prices")
+data class IngredientPrice(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val ingredientId: Long,
+    val price: Double,
+    val date: Long = System.currentTimeMillis() // Время покупки в миллисекундах
+)
 
 @Entity(tableName = "dish_categories")
 data class DishCategory(

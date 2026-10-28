@@ -13,9 +13,10 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         CashDeposit::class, Courier::class, OrderCourierAssignment::class,
         Cook::class, Ingredient::class, IngredientCategory::class, Dish::class, DishIngredient::class,
         FoodReference::class, DishCategory::class,
-        MenuTemplate::class, MenuDay::class, MenuDayDish::class, Ration::class
+        MenuTemplate::class, MenuDay::class, MenuDayDish::class, Ration::class,
+        IngredientPrice::class // <-- НОВАЯ ТАБЛИЦА
     ],
-    version = 35,
+    version = 36, // <-- ВЕРСИЯ 36
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -27,6 +28,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun assignmentDao(): OrderCourierAssignmentDao
     abstract fun cookDao(): CookDao
     abstract fun ingredientDao(): IngredientDao
+    abstract fun ingredientPriceDao(): IngredientPriceDao // <-- НОВЫЙ DAO
     abstract fun ingredientCategoryDao(): IngredientCategoryDao
     abstract fun dishDao(): DishDao
     abstract fun dishIngredientDao(): DishIngredientDao
@@ -52,39 +54,33 @@ abstract class AppDatabase : RoomDatabase() {
                 """)
             }
         }
-
         private val MIGRATION_6_7 = object : Migration(6, 7) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE orders ADD COLUMN discountPercent INTEGER NOT NULL DEFAULT 0")
                 db.execSQL("ALTER TABLE orders ADD COLUMN comment TEXT NOT NULL DEFAULT ''")
             }
         }
-
         private val MIGRATION_7_8 = object : Migration(7, 8) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE orders ADD COLUMN dailyPayment INTEGER NOT NULL DEFAULT 0")
                 db.execSQL("ALTER TABLE orders ADD COLUMN amountPerDay INTEGER NOT NULL DEFAULT 0")
             }
         }
-
         private val MIGRATION_8_9 = object : Migration(8, 9) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE orders ADD COLUMN deliveryDaysOfWeek TEXT NOT NULL DEFAULT '1,2,3,4,5,6,7'")
             }
         }
-
         private val MIGRATION_9_10 = object : Migration(9, 10) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE orders ADD COLUMN isOpenEnded INTEGER NOT NULL DEFAULT 0")
             }
         }
-
         private val MIGRATION_10_11 = object : Migration(10, 11) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE orders ADD COLUMN discountFromDate TEXT NOT NULL DEFAULT ''")
             }
         }
-
         private val MIGRATION_11_12 = object : Migration(11, 12) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE orders ADD COLUMN discountHistory TEXT NOT NULL DEFAULT ''")
@@ -99,7 +95,6 @@ abstract class AppDatabase : RoomDatabase() {
                 """)
             }
         }
-
         private val MIGRATION_12_13 = object : Migration(12, 13) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("""
@@ -114,7 +109,6 @@ abstract class AppDatabase : RoomDatabase() {
                 db.execSQL("ALTER TABLE orders ADD COLUMN courierId INTEGER NOT NULL DEFAULT 0")
             }
         }
-
         private val MIGRATION_13_14 = object : Migration(13, 14) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("""
@@ -127,7 +121,6 @@ abstract class AppDatabase : RoomDatabase() {
                 """)
             }
         }
-
         private val MIGRATION_14_15 = object : Migration(14, 15) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("""
@@ -142,12 +135,9 @@ abstract class AppDatabase : RoomDatabase() {
                         comment TEXT NOT NULL DEFAULT ''
                     )
                 """)
-                db.execSQL("""
-                    UPDATE expenses SET category = 'Зарплата (ручная)' WHERE category = 'Зарплата'
-                """)
+                db.execSQL("UPDATE expenses SET category = 'Зарплата (ручная)' WHERE category = 'Зарплата'")
             }
         }
-
         private val MIGRATION_15_16 = object : Migration(15, 16) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("""
@@ -167,11 +157,8 @@ abstract class AppDatabase : RoomDatabase() {
                     )
                 """)
                 db.execSQL("""
-                    INSERT INTO cooks_new (id, name, phone,
-                        rateMon, rateTue, rateWed, rateThu, rateFri, rateSat, rateSun,
-                        active, comment)
-                    SELECT 
-                        id, name, phone,
+                    INSERT INTO cooks_new (id, name, phone, rateMon, rateTue, rateWed, rateThu, rateFri, rateSat, rateSun, active, comment)
+                    SELECT id, name, phone,
                         CASE WHEN ',' || workDays || ',' LIKE '%,1,%' THEN rateWeekday ELSE 0 END,
                         CASE WHEN ',' || workDays || ',' LIKE '%,2,%' THEN rateWeekday ELSE 0 END,
                         CASE WHEN ',' || workDays || ',' LIKE '%,3,%' THEN rateWeekday ELSE 0 END,
@@ -186,19 +173,16 @@ abstract class AppDatabase : RoomDatabase() {
                 db.execSQL("ALTER TABLE cooks_new RENAME TO cooks")
             }
         }
-
         private val MIGRATION_16_17 = object : Migration(16, 17) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE expenses ADD COLUMN time TEXT NOT NULL DEFAULT ''")
             }
         }
-
         private val MIGRATION_17_18 = object : Migration(17, 18) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE orders ADD COLUMN skippedDates TEXT NOT NULL DEFAULT ''")
             }
         }
-
         private val MIGRATION_18_19 = object : Migration(18, 19) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE orders ADD COLUMN protein INTEGER NOT NULL DEFAULT 0")
@@ -207,7 +191,6 @@ abstract class AppDatabase : RoomDatabase() {
                 db.execSQL("ALTER TABLE clients ADD COLUMN restrictions TEXT NOT NULL DEFAULT ''")
             }
         }
-
         private val MIGRATION_19_20 = object : Migration(19, 20) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("""
@@ -239,13 +222,11 @@ abstract class AppDatabase : RoomDatabase() {
                 """)
             }
         }
-
         private val MIGRATION_20_21 = object : Migration(20, 21) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE ingredients ADD COLUMN category TEXT NOT NULL DEFAULT 'Прочее'")
             }
         }
-
         private val MIGRATION_21_22 = object : Migration(21, 22) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("""
@@ -260,7 +241,6 @@ abstract class AppDatabase : RoomDatabase() {
                 """)
             }
         }
-
         private val MIGRATION_22_23 = object : Migration(22, 23) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE ingredients ADD COLUMN calories REAL NOT NULL DEFAULT 0.0")
@@ -269,7 +249,6 @@ abstract class AppDatabase : RoomDatabase() {
                 db.execSQL("ALTER TABLE ingredients ADD COLUMN carbs REAL NOT NULL DEFAULT 0.0")
             }
         }
-
         private val MIGRATION_23_24 = object : Migration(23, 24) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("""
@@ -284,7 +263,6 @@ abstract class AppDatabase : RoomDatabase() {
                 """)
             }
         }
-
         private val MIGRATION_24_25 = object : Migration(24, 25) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("""
@@ -299,13 +277,11 @@ abstract class AppDatabase : RoomDatabase() {
                 """)
             }
         }
-
         private val MIGRATION_25_26 = object : Migration(25, 26) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE food_reference ADD COLUMN source TEXT NOT NULL DEFAULT 'builtin'")
             }
         }
-
         private val MIGRATION_26_27 = object : Migration(26, 27) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("""
@@ -332,31 +308,26 @@ abstract class AppDatabase : RoomDatabase() {
                 db.execSQL("ALTER TABLE orders ADD COLUMN menuTemplateId INTEGER NOT NULL DEFAULT 0")
             }
         }
-
         private val MIGRATION_27_28 = object : Migration(27, 28) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE ingredients ADD COLUMN wastePercent REAL NOT NULL DEFAULT 0.0")
             }
         }
-
         private val MIGRATION_28_29 = object : Migration(28, 29) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE food_reference ADD COLUMN wastePercent REAL NOT NULL DEFAULT 0.0")
             }
         }
-
         private val MIGRATION_29_30 = object : Migration(29, 30) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE ingredients ADD COLUMN heatLossPercent REAL NOT NULL DEFAULT 0.0")
             }
         }
-
         private val MIGRATION_30_31 = object : Migration(30, 31) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE dish_ingredients ADD COLUMN cookingMethod TEXT NOT NULL DEFAULT 'Сырой'")
             }
         }
-
         private val MIGRATION_31_32 = object : Migration(31, 32) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("""
@@ -370,24 +341,19 @@ abstract class AppDatabase : RoomDatabase() {
                 db.execSQL("ALTER TABLE orders ADD COLUMN rationId INTEGER NOT NULL DEFAULT 0")
             }
         }
-
         private val MIGRATION_32_33 = object : Migration(32, 33) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE menu_templates ADD COLUMN startDate TEXT NOT NULL DEFAULT '2026-01-01'")
             }
         }
-
         private val MIGRATION_33_34 = object : Migration(33, 34) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE clients ADD COLUMN preferredTemplateId INTEGER NOT NULL DEFAULT 0")
                 db.execSQL("ALTER TABLE clients ADD COLUMN preferredRationId INTEGER NOT NULL DEFAULT 0")
             }
         }
-
-        // ИСПРАВЛЕННАЯ МИГРАЦИЯ 34 -> 35
         private val MIGRATION_34_35 = object : Migration(34, 35) {
             override fun migrate(db: SupportSQLiteDatabase) {
-                // 1. Создаем новую таблицу без старой колонки heatLossPercent
                 db.execSQL("""
                     CREATE TABLE IF NOT EXISTS ingredients_new (
                         id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
@@ -406,7 +372,6 @@ abstract class AppDatabase : RoomDatabase() {
                         lossStewing REAL NOT NULL DEFAULT 0.0
                     )
                 """)
-                // 2. Переносим данные из старой таблицы
                 db.execSQL("""
                     INSERT INTO ingredients_new (
                         id, name, pricePerKg, unit, category, calories, protein, fat, carbs, wastePercent
@@ -415,9 +380,22 @@ abstract class AppDatabase : RoomDatabase() {
                         id, name, pricePerKg, unit, category, calories, protein, fat, carbs, wastePercent
                     FROM ingredients
                 """)
-                // 3. Удаляем старую и переименовываем новую
                 db.execSQL("DROP TABLE ingredients")
                 db.execSQL("ALTER TABLE ingredients_new RENAME TO ingredients")
+            }
+        }
+
+        // НОВАЯ МИГРАЦИЯ ДЛЯ ТАБЛИЦЫ ИСТОРИИ ЦЕН
+        private val MIGRATION_35_36 = object : Migration(35, 36) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS ingredient_prices (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        ingredientId INTEGER NOT NULL,
+                        price REAL NOT NULL,
+                        date INTEGER NOT NULL
+                    )
+                """)
             }
         }
 
@@ -438,7 +416,8 @@ abstract class AppDatabase : RoomDatabase() {
                         MIGRATION_23_24, MIGRATION_24_25, MIGRATION_25_26,
                         MIGRATION_26_27, MIGRATION_27_28, MIGRATION_28_29,
                         MIGRATION_29_30, MIGRATION_30_31, MIGRATION_31_32,
-                        MIGRATION_32_33, MIGRATION_33_34, MIGRATION_34_35
+                        MIGRATION_32_33, MIGRATION_33_34, MIGRATION_34_35,
+                        MIGRATION_35_36 // <-- ДОБАВЛЕНА
                     )
                     .fallbackToDestructiveMigrationOnDowngrade()
                     .build()

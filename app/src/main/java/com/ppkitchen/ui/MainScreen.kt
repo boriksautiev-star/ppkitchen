@@ -20,6 +20,7 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.ppkitchen.data.AppDatabase
 import com.ppkitchen.data.Ingredient
+import com.ppkitchen.data.IngredientPrice
 import com.ppkitchen.ocr.InvoiceRowDraft
 import com.ppkitchen.ocr.OcrInvoiceScreen
 import com.ppkitchen.ocr.OcrMode
@@ -88,12 +89,12 @@ fun MainScreen(
             }
             composable("orders") {
                 OrdersScreen(
-                    onOpenCouriers = { navController.navigate("couriers") }
+                    onOpenCouriers = { navController.navigate("couriers") },
+                    onNavigateToOcr = { mode: OcrMode -> navController.navigate("ocr/${mode.name}") }
                 )
             }
             composable("dishes") {
                 DishesScreen(
-                    // ЯВНО УКАЗЫВАЕМ ТИП mode: OcrMode
                     onNavigateToOcr = { mode: OcrMode -> navController.navigate("ocr/${mode.name}") }
                 )
             }
@@ -133,10 +134,17 @@ fun MainScreen(
                 OcrInvoiceScreen(
                     mode = mode,
                     onBack = { navController.popBackStack() },
-                    onSave = { drafts: List<InvoiceRowDraft> ->
+                    onSave = { drafts: List<InvoiceRowDraft>, updateDb: Boolean ->
+
+                        if (!updateDb) {
+                            navController.popBackStack()
+                            return@OcrInvoiceScreen
+                        }
+
                         scope.launch(Dispatchers.IO) {
                             val db = AppDatabase.get(context)
                             val dao = db.ingredientDao()
+                            val priceDao = db.ingredientPriceDao()
                             val existingList = dao.getAllOnce()
                             val existingMap = existingList.associateBy { it.name.lowercase() }
 
@@ -148,9 +156,14 @@ fun MainScreen(
                                 if (mode == OcrMode.INVOICE) {
                                     val parsedPrice = draft.price.replace(',', '.').toDoubleOrNull() ?: 0.0
                                     val parsedUnit = draft.unit.ifBlank { "г" }
+
                                     if (existingIng != null) {
                                         if (parsedPrice > 0) {
                                             dao.update(existingIng.copy(pricePerKg = parsedPrice, unit = parsedUnit))
+                                            priceDao.insert(IngredientPrice(
+                                                ingredientId = existingIng.id,
+                                                price = parsedPrice
+                                            ))
                                         }
                                     } else {
                                         val newIng = Ingredient(
@@ -159,10 +172,15 @@ fun MainScreen(
                                             unit = parsedUnit,
                                             category = "Прочее"
                                         )
-                                        dao.insert(newIng)
+                                        val newId = dao.insert(newIng)
+                                        if (parsedPrice > 0) {
+                                            priceDao.insert(IngredientPrice(
+                                                ingredientId = newId,
+                                                price = parsedPrice
+                                            ))
+                                        }
                                     }
                                 } else {
-                                    // Режим Справочника: обновляем или создаем с БЖУ
                                     val cal = draft.calories.replace(',', '.').toDoubleOrNull() ?: 0.0
                                     val prot = draft.protein.replace(',', '.').toDoubleOrNull() ?: 0.0
                                     val fat = draft.fat.replace(',', '.').toDoubleOrNull() ?: 0.0
