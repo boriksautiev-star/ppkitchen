@@ -5,62 +5,123 @@ import kotlin.math.abs
 
 object InvoiceParser {
 
-    private val UNIT_REGEX = Regex("^(шт|кг|г|л|мл|уп|упак|пач)\\.?$", RegexOption.IGNORE_CASE)
     private val NUMBER_REGEX = Regex("\\d+[.,]?\\d*")
-    private val HEADER_WORDS = listOf(
-        "наимен", "товар", "кол-во", "количест", "ед.", "ед.изм",
-        "цена", "стоим", "сумма", "итого", "всего"
-    )
+    private val HEADER_WORDS = listOf("ккал", "калор", "белк", "жир", "углев")
 
-    fun parseInvoice(lines: List<DetectedLine>): List<InvoiceRowDraft> {
-        val rows = groupIntoRows(lines)
-        return rows.mapNotNull { rowToDraft(it) }
-    }
-
-    fun parseReference(lines: List<DetectedLine>): List<InvoiceRowDraft> {
+    fun parseInvoice(lines: List<DetectedLine>, knownWords: List<String>): List<InvoiceRowDraft> {
         val rows = groupIntoRows(lines)
         return rows.mapNotNull { row ->
-            val texts = row.map { it.text.trim() }.filter { it.isNotEmpty() }
-            if (texts.isEmpty()) return@mapNotNull null
+            val text = row.joinToString(" ") { it.text }
+            parseMergedLine(text)
+        }
+    }
 
-            // Ищем ячейку с названием (где больше всего букв)
-            val nameCell = texts.maxByOrNull { it.count { c -> c.isLetter() } } ?: return@mapNotNull null
-            if (nameCell.count { it.isLetter() } < 2) return@mapNotNull null // Мусорная строка
+    fun parseReference(lines: List<DetectedLine>, knownWords: List<String>): List<InvoiceRowDraft> {
+        val allRows = groupIntoRows(lines)
 
-            // Берем числа ТОЛЬКО из других ячеек, игнорируя название (чтобы не захватить "3,2%" из имени)
-            val otherCells = texts.filter { it != nameCell }
-            val allNumbers = otherCells.flatMap { cell ->
-                NUMBER_REGEX.findAll(cell).mapNotNull { it.value.replace(',', '.').toDoubleOrNull() }
-            }.toMutableList()
+        var colCalX = -1
+        var colProtX = -1
+        var colFatX = -1
+        var colCarbX = -1
 
-            if (allNumbers.isEmpty()) return@mapNotNull null // Нет чисел — это не БЖУ
+        // 1. Ищем строку с заголовками для определения колонок
+        val headerRow = allRows.find { row ->
+            row.any { it.text.contains("Ккал", true) || it.text.contains("Калорийность", true) }
+        }
+
+        if (headerRow != null) {
+            for (word in headerRow) {
+                val t = word.text.lowercase(Locale.getDefault())
+                if (t.contains("ккал") || t.contains("калор")) colCalX = word.centerX
+                else if (t.contains("белк")) colProtX = word.centerX
+                else if (t.contains("жир")) colFatX = word.centerX
+                else if (t.contains("углев")) colCarbX = word.centerX
+            }
+        }
+
+        val hasColumns = colCalX > 0 && colProtX > 0 && colFatX > 0 && colCarbX > 0
+
+        return allRows.mapNotNull { row ->
+            if (row == headerRow) return@mapNotNull null
+
+            // Фильтруем мусорные слова, оставляя только слова с буквами или цифрами
+            val words = row.filter { it.text.any { c -> c.isLetterOrDigit() } && it.text.length > 1 }
+            if (words.isEmpty()) return@mapNotNull null
+
+            // Пропускаем строки, которые состоят только из заголовков
+            if (words.all { w -> HEADER_WORDS.any { w.text.lowercase().contains(it) } }) return@mapNotNull null
 
             var cal = ""
             var prot = ""
             var fat = ""
             var carb = ""
+            val nameParts = mutableListOf<String>()
+            val numericWords = mutableListOf<DetectedLine>()
 
-            // Если в строке 3 или 4 числа, они идут строго по порядку колонок: Ккал, Б, Ж, У
-            if (allNumbers.size >= 3) {
-                cal = formatNumber(allNumbers[0])
-                prot = formatNumber(allNumbers[1])
-                fat = formatNumber(allNumbers[2])
-                if (allNumbers.size >= 4) {
-                    carb = formatNumber(allNumbers[3])
+            for (word in words) {
+                val cleanNum = word.text.replace(',', '.').replace(Regex("[^0-9.]"), "")
+                val num = cleanNum.toDoubleOrNull()
+                val isNumber = num != null && cleanNum.isNotEmpty() && word.text.any { it.isDigit() }
+
+                if (isNumber) {
+                    numericWords.add(word)
+                } else {
+                    // Если слово находится слева от колонки Ккал (с отступом), это название
+                    if (!hasColumns || word.centerX < colCalX - 150) {
+                        nameParts.add(word.text)
+                    }
                 }
-            } else if (allNumbers.size == 2) {
-                // Если 2 числа, скорее всего это Ккал и что-то еще. Самое большое — калории.
-                val maxNum = allNumbers.maxOrNull() ?: 0.0
-                cal = formatNumber(maxNum)
-                allNumbers.remove(maxNum)
-                prot = formatNumber(allNumbers[0])
             }
 
-            // Очищаем название от случайных чисел
-            var cleanName = nameCell.replace(NUMBER_REGEX, "")
-                .replace(Regex("(?i)ккал|кал|белки|жиры|углеводы|\\bг\\b|\\bккал\\b"), "")
-                .replace(Regex("\\s+"), " ")
-                .trim(',', ';', '-', '—', ':').trim()
+            // 2. Распределяем числа по колонкам
+            if (hasColumns) {
+                for (word in numericWords) {
+                    val num = word.text.replace(',', '.').replace(Regex("[^0-9.]"), "").toDoubleOrNull() ?: continue
+
+                    // Вычисляем расстояние до центров колонок
+                    val dCal = abs(word.centerX - colCalX)
+                    val dProt = abs(word.centerX - colProtX)
+                    val dFat = abs(word.centerX - colFatX)
+                    val dCarb = abs(word.centerX - colCarbX)
+
+                    val minDist = minOf(dCal, dProt, dFat, dCarb)
+
+                    // Если число очень далеко от всех колонок (например, часть названия), пропускаем
+                    if (minDist > 200) continue
+
+                    when (minDist) {
+                        dCal -> if (cal.isEmpty()) cal = formatNumber(num)
+                        dProt -> if (prot.isEmpty()) prot = formatNumber(num)
+                        dFat -> if (fat.isEmpty()) fat = formatNumber(num)
+                        dCarb -> if (carb.isEmpty()) carb = formatNumber(num)
+                    }
+                }
+            } else {
+                // Запасной вариант, если не нашли заголовки (просто по порядку)
+                val nums = numericWords.mapNotNull { it.text.replace(',', '.').replace(Regex("[^0-9.]"), "").toDoubleOrNull() }
+                if (nums.size >= 3) {
+                    cal = formatNumber(nums[0])
+                    prot = formatNumber(nums[1])
+                    fat = formatNumber(nums[2])
+                    if (nums.size >= 4) carb = formatNumber(nums[3])
+                } else if (nums.size == 2) {
+                    cal = formatNumber(nums[0])
+                    prot = formatNumber(nums[1])
+                }
+            }
+
+            // Если ни одна цифра не попала в колонки, пропускаем строку
+            if (cal.isEmpty() && prot.isEmpty() && fat.isEmpty() && carb.isEmpty()) return@mapNotNull null
+
+            // 3. Формируем название
+            var cleanName = nameParts.joinToString(" ")
+                .replace(Regex("(?i)ккал|кал|белки|жиры|углеводы|\\bг\\b"), "")
+                .trim(' ', ',', '.', '-', '—')
+
+            if (cleanName.count { it.isLetter() } < 2) {
+                cleanName = words.firstOrNull { it.text.any { c -> c.isLetter() } }?.text ?: ""
+                cleanName = cleanName.replace(Regex("(?i)ккал|кал|белки|жиры|углеводы"), "").trim()
+            }
 
             if (cleanName.count { it.isLetter() } < 2) return@mapNotNull null
 
@@ -78,8 +139,8 @@ object InvoiceParser {
         val nonEmpty = lines.filter { it.text.isNotBlank() }
         if (nonEmpty.isEmpty()) return emptyList()
 
-        val avgHeight = nonEmpty.map { it.height }.average().toInt().coerceAtLeast(1)
-        val tolerance = (avgHeight * 1.2).toInt().coerceAtLeast(10)
+        val avgHeight = nonEmpty.map { it.height }.average().toInt().coerceAtLeast(10)
+        val tolerance = (avgHeight * 1.5).toInt().coerceAtLeast(20)
 
         val sorted = nonEmpty.sortedBy { it.centerY }
         val rows = mutableListOf<MutableList<DetectedLine>>()
@@ -98,86 +159,31 @@ object InvoiceParser {
         return rows.map { row -> row.sortedBy { it.left } }
     }
 
-    private fun rowToDraft(row: List<DetectedLine>): InvoiceRowDraft? {
-        val texts = row.map { it.text.trim() }.filter { it.isNotEmpty() }
-        if (texts.isEmpty()) return null
-
-        if (texts.size == 1) {
-            return parseMergedLine(texts.first())
-        }
-
-        val unitCell = texts.firstOrNull { UNIT_REGEX.matches(it) }
-        val withoutUnit = if (unitCell != null) texts.filter { it != unitCell } else texts
-
-        val nameCell = withoutUnit.maxByOrNull { cell -> cell.count { it.isLetter() } }
-        val nameLetters = nameCell?.count { it.isLetter() } ?: 0
-        if (nameCell == null || nameLetters < 2) {
-            return parseMergedLine(texts.joinToString(" "))
-        }
-
-        val lowerName = nameCell.lowercase(Locale.getDefault())
-        val isHeader = HEADER_WORDS.any { lowerName.contains(it) } &&
-                withoutUnit.none { NUMBER_REGEX.matches(it) }
-        if (isHeader) return null
-        if (lowerName == "итого" || lowerName == "всего") return null
-
-        val numberTexts = withoutUnit.filter { it != nameCell }
-        val numbers = numberTexts.mapNotNull { parseNumber(it) }
-
-        val quantity = numbers.getOrNull(0)?.let { formatNumber(it) } ?: ""
-        val price = numbers.getOrNull(1)?.let { formatNumber(it) } ?: ""
-        val unit = unitCell?.lowercase(Locale.getDefault()) ?: "г"
-
-        return InvoiceRowDraft(
-            name = nameCell.trim(),
-            quantity = quantity,
-            unit = unit,
-            price = price
-        )
-    }
-
     private fun parseMergedLine(text: String): InvoiceRowDraft? {
         val cleaned = text.trim()
         if (cleaned.length < 2) return null
 
-        val lower = cleaned.lowercase(Locale.getDefault())
-        if (HEADER_WORDS.any { lower.startsWith(it) } && NUMBER_REGEX.find(cleaned) == null) {
-            return null
-        }
-        if (lower == "итого" || lower == "всего") return null
-
-        val firstNumber = NUMBER_REGEX.find(cleaned) ?: return InvoiceRowDraft(name = cleaned)
+        val firstNumber = NUMBER_REGEX.find(cleaned) ?: return null
         val name = cleaned.substring(0, firstNumber.range.first)
             .trim()
             .trimEnd(',', ';', '-', '—', ':')
             .trim()
         if (name.isBlank() || name.count { it.isLetter() } < 2) return null
 
-        val allNumbers = NUMBER_REGEX.findAll(cleaned).mapNotNull { parseNumber(it.value) }.toList()
-        val tail = cleaned.substring(firstNumber.range.last + 1)
-        val unitMatch = Regex("(?i)\\b(шт|кг|г|л|мл|уп|упак|пач)\\b").find(tail)
-        val unit = unitMatch?.value?.lowercase(Locale.getDefault()) ?: "г"
+        val allNumbers = NUMBER_REGEX.findAll(cleaned).mapNotNull { it.value.replace(',', '.').toDoubleOrNull() }.toList()
+
+        val quantity = allNumbers.getOrNull(0)?.let { formatNumber(it) } ?: ""
+        val price = allNumbers.getOrNull(1)?.let { formatNumber(it) } ?: ""
 
         return InvoiceRowDraft(
             name = name,
-            quantity = allNumbers.getOrNull(0)?.let { formatNumber(it) } ?: "",
-            unit = unit,
-            price = allNumbers.getOrNull(1)?.let { formatNumber(it) } ?: ""
+            quantity = quantity,
+            unit = "г",
+            price = price
         )
-    }
-
-    private fun parseNumber(raw: String): Double? {
-        val cleaned = raw
-            .replace('\u00A0', ' ')
-            .replace(" ", "")
-            .replace("₽", "")
-            .replace("руб", "", ignoreCase = true)
-            .replace(',', '.')
-            .trim()
-        return cleaned.toDoubleOrNull()
     }
 
     private fun formatNumber(d: Double): String =
         if (d % 1.0 == 0.0) d.toLong().toString()
-        else String.format(Locale.US, "%.2f", d).trimEnd('0').trimEnd('.')
+        else String.format(Locale.US, "%.1f", d).trimEnd('0').trimEnd('.')
 }

@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.selection.SelectionContainer // <-- НОВЫЙ ИМПОРТ
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
@@ -55,6 +56,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.ppkitchen.data.AppDatabase
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -67,9 +69,12 @@ fun OcrInvoiceScreen(
     viewModel: OcrViewModel = viewModel()
 ) {
     val context = LocalContext.current
+    val db = remember { AppDatabase.get(context) }
+
     val state by viewModel.state.collectAsState()
     val rows by viewModel.rows.collectAsState()
     val error by viewModel.error.collectAsState()
+    val statusMessage by viewModel.statusMessage.collectAsState()
 
     var hasPermission by remember {
         mutableStateOf(
@@ -91,6 +96,11 @@ fun OcrInvoiceScreen(
 
     LaunchedEffect(Unit) {
         if (!hasPermission) permissionLauncher.launch(Manifest.permission.CAMERA)
+        viewModel.initializeTesseract(context)
+        val words = withContext(Dispatchers.IO) {
+            db.ingredientDao().getAllOnce().map { it.name }
+        }
+        viewModel.updateKnownWords(words)
     }
 
     Scaffold(
@@ -124,6 +134,7 @@ fun OcrInvoiceScreen(
                 )
                 else -> CameraBlock(
                     processing = state == OcrState.Processing,
+                    status = statusMessage,
                     error = error,
                     onImageCaptured = { proxy -> viewModel.recognize(proxy, mode) },
                     onRetry = viewModel::retry
@@ -149,6 +160,7 @@ private fun PermissionStub(onRequest: () -> Unit) {
 @Composable
 private fun CameraBlock(
     processing: Boolean,
+    status: String?,
     error: String?,
     onImageCaptured: (ImageProxy) -> Unit,
     onRetry: () -> Unit
@@ -184,8 +196,24 @@ private fun CameraBlock(
         AndroidView(factory = { previewView }, modifier = Modifier.fillMaxSize())
 
         if (processing) {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator()
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(16.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Card {
+                    Column(
+                        modifier = Modifier.padding(24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        CircularProgressIndicator()
+                        if (status != null) {
+                            Spacer(Modifier.width(16.dp))
+                            Text(text = status, style = MaterialTheme.typography.bodyLarge)
+                        }
+                    }
+                }
             }
         }
 
@@ -194,12 +222,15 @@ private fun CameraBlock(
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             if (error != null) {
-                Text(
-                    text = error,
-                    color = MaterialTheme.colorScheme.error,
-                    style = MaterialTheme.typography.bodyMedium,
-                    modifier = Modifier.padding(bottom = 8.dp)
-                )
+                // Оборачиваем текст в SelectionContainer, чтобы его можно было скопировать
+                SelectionContainer {
+                    Text(
+                        text = error,
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.padding(bottom = 8.dp)
+                    )
+                }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                 if (error != null) {
@@ -222,7 +253,7 @@ private fun CameraBlock(
                         )
                     }
                 ) {
-                    Text(if (processing) "Распознавание..." else "Снять")
+                    Text(if (processing) "Ожидайте..." else "Снять")
                 }
             }
         }

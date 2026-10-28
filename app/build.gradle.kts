@@ -23,7 +23,6 @@ android {
         targetSdk = 36
         versionCode = 1
         versionName = "1.0"
-
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -95,12 +94,15 @@ dependencies {
     implementation("androidx.work:work-runtime-ktx:2.9.1")
     implementation("androidx.documentfile:documentfile:1.0.1")
 
+    // Excel
     implementation("org.dhatim:fastexcel:0.20.2")
     implementation("org.dhatim:fastexcel-reader:0.20.2")
 
-    // --- OCR И КАМЕРА ---
-    implementation("com.google.mlkit:text-recognition:16.0.1")
-    // implementation("com.google.mlkit:text-recognition-cyrillic:16.0.1") // <-- УДАЛЕНО
+    // --- OCR: Tesseract + OpenCV ---
+    implementation("com.rmtheis:tess-two:9.1.0")
+    implementation("com.quickbirdstudios:opencv:4.5.3.0")
+
+    // --- Камера ---
     implementation("androidx.camera:camera-core:1.3.4")
     implementation("androidx.camera:camera-camera2:1.3.4")
     implementation("androidx.camera:camera-lifecycle:1.3.4")
