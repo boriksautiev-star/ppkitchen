@@ -13,6 +13,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.MenuBook
 import androidx.compose.material.icons.filled.ShoppingBasket
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -33,7 +34,7 @@ import java.util.Locale
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DishesScreen(
-    onNavigateToOcr: (OcrMode) -> Unit // <-- ВАЖНО: Параметр есть
+    onNavigateToOcr: (OcrMode) -> Unit
 ) {
     val ctx = LocalContext.current
     val db = remember { AppDatabase.get(ctx) }
@@ -110,6 +111,9 @@ fun DishesScreen(
                 },
                 actions = {
                     if (selectedTab == 0) {
+                        IconButton(onClick = { onNavigateToOcr(OcrMode.MENU) }) {
+                            Icon(Icons.Default.MenuBook, "Сканер меню")
+                        }
                         IconButton(onClick = { showCategoryManager = true }) {
                             Icon(Icons.Default.Folder, "Группы блюд")
                         }

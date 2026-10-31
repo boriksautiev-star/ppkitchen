@@ -101,6 +101,7 @@ dependencies {
     // --- OCR: Tesseract + OpenCV ---
     implementation("com.rmtheis:tess-two:9.1.0")
     implementation("com.quickbirdstudios:opencv:4.5.3.0")
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
 
     // --- Камера ---
     implementation("androidx.camera:camera-core:1.3.4")

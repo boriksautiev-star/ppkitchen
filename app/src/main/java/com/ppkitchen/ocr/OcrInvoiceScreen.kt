@@ -11,16 +11,7 @@ import androidx.camera.core.ImageProxy
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height // <-- ДОБАВЛЕН ИМПОРТ
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardOptions
@@ -29,27 +20,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.PhotoLibrary
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.Checkbox
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -79,6 +51,7 @@ fun OcrInvoiceScreen(
     val rows by viewModel.rows.collectAsState()
     val error by viewModel.error.collectAsState()
     val statusMessage by viewModel.statusMessage.collectAsState()
+    val bitmapToCrop by viewModel.bitmapToCrop.collectAsState()
 
     var hasPermission by remember {
         mutableStateOf(
@@ -107,10 +80,26 @@ fun OcrInvoiceScreen(
         viewModel.updateKnownWords(words)
     }
 
+    if (state == OcrState.Crop && bitmapToCrop != null) {
+        CropScreen(
+            bitmap = bitmapToCrop!!,
+            onCrop = { croppedBitmap -> viewModel.processCroppedImage(croppedBitmap) },
+            onCancel = { viewModel.cancelCrop() }
+        )
+        return
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(if (mode == OcrMode.INVOICE) "Скан накладной" else "Скан справочника БЖУ") },
+                title = {
+                    val title = when(mode) {
+                        OcrMode.INVOICE -> "Скан накладной"
+                        OcrMode.REFERENCE -> "Скан справочника БЖУ"
+                        OcrMode.MENU -> "Скан меню / рецептов"
+                    }
+                    Text(title)
+                },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.Default.ArrowBack, contentDescription = "Назад")
@@ -201,9 +190,7 @@ private fun CameraBlock(
 
         if (processing) {
             Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(16.dp),
+                modifier = Modifier.fillMaxSize().padding(16.dp),
                 contentAlignment = Alignment.Center
             ) {
                 Card {
@@ -294,22 +281,23 @@ private fun DraftList(
             modifier = Modifier.fillMaxWidth()
         ) {
             Column(Modifier.padding(12.dp)) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Checkbox(
-                        checked = updateDb,
-                        onCheckedChange = { updateDb = it }
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    Column {
-                        Text("Обновить цены в базе", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
-                        Text("Если снять галочку, цены не изменятся", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (mode != OcrMode.MENU) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Checkbox(
+                            checked = updateDb,
+                            onCheckedChange = { updateDb = it }
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Column {
+                            Text("Обновить данные в базе", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+                            Text("Если снять галочку, данные не изменятся", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
                     }
+                    Spacer(Modifier.height(12.dp))
                 }
-
-                Spacer(Modifier.height(12.dp))
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -382,7 +370,7 @@ private fun DraftRowCard(
                         modifier = Modifier.weight(1f)
                     )
                 }
-            } else {
+            } else if (mode == OcrMode.REFERENCE) {
                 Row(
                     modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -415,6 +403,20 @@ private fun DraftRowCard(
                         value = row.carbs,
                         onValueChange = { onChange(row.copy(carbs = it)) },
                         label = { Text("У") },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            } else {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedTextField(
+                        value = row.calories,
+                        onValueChange = { onChange(row.copy(calories = it)) },
+                        label = { Text("Ккал (необязательно)") },
                         singleLine = true,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                         modifier = Modifier.weight(1f)
