@@ -24,7 +24,8 @@ data class Ingredient(
     val lossBoiling: Double = 0.0,
     val lossFrying: Double = 0.0,
     val lossBaking: Double = 0.0,
-    val lossStewing: Double = 0.0
+    val lossStewing: Double = 0.0,
+    val weightPerPiece: Double = 0.0 // НОВОЕ ПОЛЕ: вес 1 шт в граммах
 ) {
     fun getLossForMethod(method: String): Double = when (method) {
         "Варка" -> lossBoiling

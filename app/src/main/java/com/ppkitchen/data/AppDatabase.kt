@@ -14,9 +14,9 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         Cook::class, Ingredient::class, IngredientCategory::class, Dish::class, DishIngredient::class,
         FoodReference::class, DishCategory::class,
         MenuTemplate::class, MenuDay::class, MenuDayDish::class, Ration::class,
-        IngredientPrice::class // <-- НОВАЯ ТАБЛИЦА
+        IngredientPrice::class
     ],
-    version = 36, // <-- ВЕРСИЯ 36
+    version = 37, // <-- ВЕРСИЯ 37
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -28,7 +28,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun assignmentDao(): OrderCourierAssignmentDao
     abstract fun cookDao(): CookDao
     abstract fun ingredientDao(): IngredientDao
-    abstract fun ingredientPriceDao(): IngredientPriceDao // <-- НОВЫЙ DAO
+    abstract fun ingredientPriceDao(): IngredientPriceDao
     abstract fun ingredientCategoryDao(): IngredientCategoryDao
     abstract fun dishDao(): DishDao
     abstract fun dishIngredientDao(): DishIngredientDao
@@ -384,8 +384,6 @@ abstract class AppDatabase : RoomDatabase() {
                 db.execSQL("ALTER TABLE ingredients_new RENAME TO ingredients")
             }
         }
-
-        // НОВАЯ МИГРАЦИЯ ДЛЯ ТАБЛИЦЫ ИСТОРИИ ЦЕН
         private val MIGRATION_35_36 = object : Migration(35, 36) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("""
@@ -396,6 +394,11 @@ abstract class AppDatabase : RoomDatabase() {
                         date INTEGER NOT NULL
                     )
                 """)
+            }
+        }
+        private val MIGRATION_36_37 = object : Migration(36, 37) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE ingredients ADD COLUMN weightPerPiece REAL NOT NULL DEFAULT 0.0")
             }
         }
 
@@ -417,7 +420,7 @@ abstract class AppDatabase : RoomDatabase() {
                         MIGRATION_26_27, MIGRATION_27_28, MIGRATION_28_29,
                         MIGRATION_29_30, MIGRATION_30_31, MIGRATION_31_32,
                         MIGRATION_32_33, MIGRATION_33_34, MIGRATION_34_35,
-                        MIGRATION_35_36 // <-- ДОБАВЛЕНА
+                        MIGRATION_35_36, MIGRATION_36_37
                     )
                     .fallbackToDestructiveMigrationOnDowngrade()
                     .build()

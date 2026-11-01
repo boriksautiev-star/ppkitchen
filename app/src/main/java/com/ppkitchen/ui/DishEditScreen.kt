@@ -80,7 +80,14 @@ fun DishEditScreen(
                 val heatLoss = ing.getLossForMethod(di.cookingMethod)
                 val netto = if (heatLoss > 0) output / ((100.0 - heatLoss) / 100.0) else output
 
-                val multiplier = if (ing.unit == "шт") netto else netto / 100.0
+                // Пересчет штук в граммы для расчета БЖУ
+                val grams = if (ing.unit == "шт") {
+                    netto * (if (ing.weightPerPiece > 0) ing.weightPerPiece else 100.0)
+                } else {
+                    netto
+                }
+                val multiplier = grams / 100.0
+
                 totalKcal += ing.calories * multiplier
                 totalProt += ing.protein * multiplier
                 totalFat += ing.fat * multiplier
@@ -105,6 +112,13 @@ fun DishEditScreen(
         dishIngs.any { di ->
             val ing = ingredients.find { it.id == di.ingredientId }
             ing != null && ing.calories == 0.0 && ing.protein == 0.0 && ing.fat == 0.0 && ing.carbs == 0.0
+        }
+    }
+
+    val hasMissingPieceWeight = remember(dishIngs.toList(), ingredients) {
+        dishIngs.any { di ->
+            val ing = ingredients.find { it.id == di.ingredientId }
+            ing != null && ing.unit == "шт" && ing.weightPerPiece <= 0.0
         }
     }
 
@@ -217,6 +231,12 @@ fun DishEditScreen(
                         }
                     }
 
+                    if (hasMissingPieceWeight) {
+                        Surface(color = MaterialTheme.colorScheme.errorContainer, shape = MaterialTheme.shapes.small, modifier = Modifier.fillMaxWidth()) {
+                            Text("⚠️ У штучных ингредиентов (шт) не указан вес 1 шт. Калории считаются как за 100 г. Исправьте это в справочнике ингредиентов.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onErrorContainer, modifier = Modifier.padding(8.dp))
+                        }
+                    }
+
                     HorizontalDivider(Modifier.padding(vertical = 8.dp))
 
                     Row(
@@ -265,7 +285,12 @@ fun DishEditScreen(
                                                 horizontalArrangement = Arrangement.SpaceBetween,
                                                 verticalAlignment = Alignment.CenterVertically
                                             ) {
-                                                Text(ing.name, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                                                Column {
+                                                    Text(ing.name, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                                                    if (ing.unit == "шт") {
+                                                        Text("Вес 1 шт: ${if (ing.weightPerPiece > 0) "${ing.weightPerPiece} г" else "Не указан"}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                                    }
+                                                }
                                                 IconButton(onClick = { dishIngs.remove(di); amountStrings.remove(ing.id) }) {
                                                     Icon(Icons.Default.Delete, "Удалить", tint = MaterialTheme.colorScheme.error)
                                                 }

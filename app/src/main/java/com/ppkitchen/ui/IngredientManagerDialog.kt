@@ -25,7 +25,6 @@ import com.ppkitchen.data.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import org.json.JSONArray
 import java.util.Locale
 
 @Composable
@@ -99,9 +98,27 @@ fun IngredientManagerDialog(
                         } ?: Pair(emptyList(), emptyList())
                     }
 
-                    for (ing in toUpdate) db.ingredientDao().update(ing)
-                    for (ing in toInsert) db.ingredientDao().insert(ing)
+                    for (ing in toUpdate) {
+                        db.ingredientDao().update(ing)
+                        // Обновляем и справочник (автозаполнение)
+                        val ref = db.foodReferenceDao().findByName(ing.name)
+                        db.foodReferenceDao().insert(FoodReference(
+                            id = ref?.id ?: 0, name = ing.name, calories = ing.calories,
+                            protein = ing.protein, fat = ing.fat, carbs = ing.carbs,
+                            source = "custom", wastePercent = ing.wastePercent
+                        ))
+                    }
+                    for (ing in toInsert) {
+                        db.ingredientDao().insert(ing)
+                        val ref = db.foodReferenceDao().findByName(ing.name)
+                        db.foodReferenceDao().insert(FoodReference(
+                            id = ref?.id ?: 0, name = ing.name, calories = ing.calories,
+                            protein = ing.protein, fat = ing.fat, carbs = ing.carbs,
+                            source = "custom", wastePercent = ing.wastePercent
+                        ))
+                    }
 
+                    refreshCounts()
                     withContext(Dispatchers.Main) {
                         Toast.makeText(ctx, "Импортировано: обновлено ${toUpdate.size}, добавлено ${toInsert.size}", Toast.LENGTH_LONG).show()
                     }
@@ -133,58 +150,6 @@ fun IngredientManagerDialog(
                     withContext(Dispatchers.Main) {
                         Toast.makeText(ctx, "Ошибка экспорта: ${e.message}", Toast.LENGTH_LONG).show()
                     }
-                }
-            }
-        }
-    }
-
-    // --- ИМПОРТ JSON ---
-    val importJsonLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.OpenDocument()
-    ) { uri ->
-        if (uri != null) {
-            scope.launch {
-                try {
-                    val json = ctx.contentResolver.openInputStream(uri)
-                        ?.bufferedReader(Charsets.UTF_8)
-                        ?.use { it.readText() }
-                        ?: return@launch
-
-                    val arr = JSONArray(json)
-                    val builtins = mutableListOf<FoodReference>()
-                    val customs = mutableListOf<FoodReference>()
-
-                    for (i in 0 until arr.length()) {
-                        val o = arr.getJSONObject(i)
-                        val source = o.optString("source", "builtin")
-                        val name = o.getString("name")
-
-                        val waste = if (o.has("wastePercent")) {
-                            o.optDouble("wastePercent", 0.0)
-                        } else {
-                            FoodReferenceInitializer.getSuggestedWaste(name).toDoubleOrNull() ?: 0.0
-                        }
-
-                        val ref = FoodReference(
-                            name = name,
-                            calories = o.optDouble("calories", 0.0),
-                            protein = o.optDouble("protein", 0.0),
-                            fat = o.optDouble("fat", 0.0),
-                            carbs = o.optDouble("carbs", 0.0),
-                            source = source,
-                            wastePercent = waste
-                        )
-                        if (source == "custom") customs.add(ref) else builtins.add(ref)
-                    }
-
-                    db.foodReferenceDao().deleteBySource("builtin")
-                    db.foodReferenceDao().insertAll(builtins)
-                    db.foodReferenceDao().insertAll(customs)
-
-                    refreshCounts()
-                    Toast.makeText(ctx, "Импортировано JSON: базовых ${builtins.size}, своих ${customs.size}", Toast.LENGTH_LONG).show()
-                } catch (e: Exception) {
-                    Toast.makeText(ctx, "Ошибка импорта: ${e.message}", Toast.LENGTH_LONG).show()
                 }
             }
         }
@@ -339,30 +304,22 @@ fun IngredientManagerDialog(
 
                             Spacer(Modifier.height(8.dp))
 
-                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                OutlinedButton(
-                                    onClick = { importJsonLauncher.launch(arrayOf("application/json", "text/plain", "*/*")) },
-                                    modifier = Modifier.weight(1f)
-                                ) {
-                                    Text("Импорт JSON", style = MaterialTheme.typography.labelSmall)
-                                }
-                                OutlinedButton(
-                                    onClick = {
-                                        scope.launch {
-                                            try {
-                                                db.foodReferenceDao().deleteBySource("builtin")
-                                                FoodReferenceInitializer.initializeIfNeeded(ctx)
-                                                refreshCounts()
-                                                Toast.makeText(ctx, "Справочник восстановлен", Toast.LENGTH_SHORT).show()
-                                            } catch (e: Exception) {
-                                                Toast.makeText(ctx, "Ошибка: ${e.message}", Toast.LENGTH_LONG).show()
-                                            }
+                            OutlinedButton(
+                                onClick = {
+                                    scope.launch {
+                                        try {
+                                            db.foodReferenceDao().deleteBySource("builtin")
+                                            FoodReferenceInitializer.initializeIfNeeded(ctx)
+                                            refreshCounts()
+                                            Toast.makeText(ctx, "Справочник восстановлен", Toast.LENGTH_SHORT).show()
+                                        } catch (e: Exception) {
+                                            Toast.makeText(ctx, "Ошибка: ${e.message}", Toast.LENGTH_LONG).show()
                                         }
-                                    },
-                                    modifier = Modifier.weight(1f)
-                                ) {
-                                    Text("Сброс к заводскому", style = MaterialTheme.typography.labelSmall)
-                                }
+                                    }
+                                },
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text("Сброс справочника к заводскому", style = MaterialTheme.typography.labelSmall)
                             }
                         }
                     }
@@ -488,6 +445,8 @@ fun IngredientManagerDialog(
     }
 }
 
+// ... CategoryManagerDialog и MultiIngredientPickerDialog остаются без изменений ...
+// (Вставьте их сюда из предыдущего ответа, они не менялись)
 @Composable
 fun CategoryManagerDialog(onDismiss: () -> Unit) {
     val ctx = LocalContext.current
@@ -592,7 +551,6 @@ fun MultiIngredientPickerDialog(
     ) {
         Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
             Column(Modifier.fillMaxSize()) {
-                // Верхняя панель
                 CompactTopBar(
                     title = "Выбор ингредиентов",
                     onBack = onDismiss,
@@ -601,7 +559,6 @@ fun MultiIngredientPickerDialog(
                     }
                 )
 
-                // Поиск
                 OutlinedTextField(
                     value = searchQuery,
                     onValueChange = { searchQuery = it },
@@ -620,7 +577,6 @@ fun MultiIngredientPickerDialog(
                         .padding(horizontal = 12.dp, vertical = 8.dp)
                 )
 
-                // Категории
                 Row(
                     Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 4.dp),
                     horizontalArrangement = Arrangement.spacedBy(4.dp)
@@ -639,7 +595,6 @@ fun MultiIngredientPickerDialog(
                     }
                 }
 
-                // Список
                 if (filtered.isEmpty()) {
                     Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
                         Text("Ничего не найдено.", style = MaterialTheme.typography.bodyLarge)
@@ -680,7 +635,6 @@ fun MultiIngredientPickerDialog(
                     }
                 }
 
-                // Кнопка подтверждения внизу
                 Button(
                     onClick = {
                         val selectedIngs = ingredients.filter { selectedIds.contains(it.id) }

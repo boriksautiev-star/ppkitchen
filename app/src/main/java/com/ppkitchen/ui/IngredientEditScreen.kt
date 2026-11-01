@@ -48,11 +48,12 @@ fun IngredientEditScreen(
     var carbText by remember { mutableStateOf(if ((ingredient?.carbs ?: 0.0) > 0) ingredient!!.carbs.toString() else "") }
     var wasteText by remember { mutableStateOf(if ((ingredient?.wastePercent ?: 0.0) > 0) ingredient!!.wastePercent.toString() else "") }
 
-    // НОВЫЕ ПОЛЯ
     var lossBoilingText by remember { mutableStateOf(if ((ingredient?.lossBoiling ?: 0.0) > 0) ingredient!!.lossBoiling.toString() else "") }
     var lossFryingText by remember { mutableStateOf(if ((ingredient?.lossFrying ?: 0.0) > 0) ingredient!!.lossFrying.toString() else "") }
     var lossBakingText by remember { mutableStateOf(if ((ingredient?.lossBaking ?: 0.0) > 0) ingredient!!.lossBaking.toString() else "") }
     var lossStewingText by remember { mutableStateOf(if ((ingredient?.lossStewing ?: 0.0) > 0) ingredient!!.lossStewing.toString() else "") }
+
+    var weightPerPieceText by remember { mutableStateOf(if ((ingredient?.weightPerPiece ?: 0.0) > 0) ingredient!!.weightPerPiece.toString() else "") }
 
     var showCategoryMenu by remember { mutableStateOf(false) }
 
@@ -101,7 +102,8 @@ fun IngredientEditScreen(
                                     lossBoiling = lossBoilingText.toDoubleOrNull() ?: 0.0,
                                     lossFrying = lossFryingText.toDoubleOrNull() ?: 0.0,
                                     lossBaking = lossBakingText.toDoubleOrNull() ?: 0.0,
-                                    lossStewing = lossStewingText.toDoubleOrNull() ?: 0.0
+                                    lossStewing = lossStewingText.toDoubleOrNull() ?: 0.0,
+                                    weightPerPiece = weightPerPieceText.toDoubleOrNull() ?: 0.0
                                 ))
                             }
                         ) {
@@ -149,7 +151,6 @@ fun IngredientEditScreen(
                                             carbText = if (ref.carbs > 0) ref.carbs.toString() else ""
 
                                             wasteText = if (ref.wastePercent > 0) ref.wastePercent.toString() else ""
-                                            // Автоматически подставляем потери для каждого метода из справочника
                                             lossBoilingText = com.ppkitchen.data.FoodReferenceInitializer.getSuggestedHeatLoss(ref.name).toString()
                                             lossFryingText = com.ppkitchen.data.FoodReferenceInitializer.getSuggestedHeatLoss(ref.name).toString()
                                             lossBakingText = com.ppkitchen.data.FoodReferenceInitializer.getSuggestedHeatLoss(ref.name).toString()
@@ -186,6 +187,18 @@ fun IngredientEditScreen(
                                 modifier = Modifier.weight(1f)
                             )
                         }
+                    }
+
+                    if (unit == "шт") {
+                        OutlinedTextField(
+                            value = weightPerPieceText,
+                            onValueChange = { input -> weightPerPieceText = input.filter { it.isDigit() || it == '.' } },
+                            label = { Text("Вес 1 шт (грамм)") },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Text("💡 Укажите средний вес (например, 1 яйцо ≈ 55 г). Нужно для правильного расчета БЖУ.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
 
                     OutlinedTextField(

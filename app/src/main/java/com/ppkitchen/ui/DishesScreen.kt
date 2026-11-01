@@ -99,7 +99,10 @@ fun DishesScreen(
     var showSortMenu by remember { mutableStateOf(false) }
     var showExcelMenu by remember { mutableStateOf(false) }
 
-    // --- ЛОГИКА СКАЧИВАНИЯ ШАБЛОНА ---
+    var showFullImportProgress by remember { mutableStateOf(false) }
+    var fullImportProgressText by remember { mutableStateOf("") }
+
+    // --- СКАЧИВАНИЕ ШАБЛОНА БЛЮД ---
     val downloadTemplateLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
     ) { uri ->
@@ -123,7 +126,7 @@ fun DishesScreen(
         }
     }
 
-    // --- ЛОГИКА ЭКСПОРТА ---
+    // --- ЭКСПОРТ БЛЮД ---
     val exportExcelLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
     ) { uri ->
@@ -147,7 +150,7 @@ fun DishesScreen(
         }
     }
 
-    // --- ЛОГИКА ИМПОРТА ---
+    // --- ИМПОРТ БЛЮД ---
     val importExcelLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
     ) { uri ->
@@ -161,11 +164,64 @@ fun DishesScreen(
                     }
 
                     withContext(Dispatchers.Main) {
-                        Toast.makeText(ctx, "Импортировано: добавлено $added, обновлено $updated (БЖУ рассчитано)", Toast.LENGTH_LONG).show()
+                        Toast.makeText(ctx, "Импортировано: добавлено $added, обновлено $updated", Toast.LENGTH_LONG).show()
                     }
                 } catch (e: Throwable) {
                     withContext(Dispatchers.Main) {
                         Toast.makeText(ctx, "Ошибка импорта: ${e.message}", Toast.LENGTH_LONG).show()
+                    }
+                }
+            }
+        }
+    }
+
+    // --- ПОЛНЫЙ ЭКСПОРТ БАЗЫ ---
+    val exportFullLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    ) { uri ->
+        if (uri != null) {
+            scope.launch {
+                try {
+                    withContext(Dispatchers.IO) {
+                        ctx.contentResolver.openOutputStream(uri)?.use { out ->
+                            ExcelHelper.exportFullBackup(out, db)
+                        }
+                    }
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(ctx, "Полный бэкап сохранен", Toast.LENGTH_LONG).show()
+                    }
+                } catch (e: Throwable) {
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(ctx, "Ошибка: ${e.message}", Toast.LENGTH_LONG).show()
+                    }
+                }
+            }
+        }
+    }
+
+    // --- ПОЛНЫЙ ИМПОРТ БАЗЫ ---
+    val importFullLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            scope.launch {
+                showFullImportProgress = true
+                try {
+                    withContext(Dispatchers.IO) {
+                        ctx.contentResolver.openInputStream(uri)?.use { input ->
+                            ExcelHelper.importFullBackup(input, db) { msg ->
+                                fullImportProgressText = msg
+                            }
+                        }
+                    }
+                    withContext(Dispatchers.Main) {
+                        showFullImportProgress = false
+                        Toast.makeText(ctx, "Полный импорт завершен!", Toast.LENGTH_LONG).show()
+                    }
+                } catch (e: Throwable) {
+                    withContext(Dispatchers.Main) {
+                        showFullImportProgress = false
+                        Toast.makeText(ctx, "Ошибка: ${e.message}", Toast.LENGTH_LONG).show()
                     }
                 }
             }
@@ -179,6 +235,18 @@ fun DishesScreen(
         "cost_asc" -> filtered.sortedBy { calculateDishCost(it.id, dishIngredients, ingredients, avgPrices) }
         "cost_desc" -> filtered.sortedByDescending { calculateDishCost(it.id, dishIngredients, ingredients, avgPrices) }
         else -> filtered.sortedBy { it.name.lowercase() }
+    }
+
+    if (showFullImportProgress) {
+        Dialog(onDismissRequest = {}) {
+            Card {
+                Column(Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                    CircularProgressIndicator()
+                    Spacer(Modifier.height(16.dp))
+                    Text(fullImportProgressText, style = MaterialTheme.typography.bodyLarge)
+                }
+            }
+        }
     }
 
     Scaffold(
@@ -207,8 +275,8 @@ fun DishesScreen(
                                 onDismissRequest = { showExcelMenu = false }
                             ) {
                                 DropdownMenuItem(
-                                    text = { Text("Скачать шаблон Excel") },
-                                    onClick = { showExcelMenu = false; downloadTemplateLauncher.launch("Шаблон_блюд_PP_Kitchen.xlsx") }
+                                    text = { Text("Скачать шаблон блюд") },
+                                    onClick = { showExcelMenu = false; downloadTemplateLauncher.launch("Шаблон_блюд.xlsx") }
                                 )
                                 DropdownMenuItem(
                                     text = { Text("Импорт блюд (Excel)") },
@@ -221,6 +289,19 @@ fun DishesScreen(
                                         val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
                                         exportExcelLauncher.launch("dishes_${sdf.format(Date())}.xlsx")
                                     }
+                                )
+                                HorizontalDivider()
+                                DropdownMenuItem(
+                                    text = { Text("💾 Полный бэкап (Excel)") },
+                                    onClick = {
+                                        showExcelMenu = false
+                                        val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
+                                        exportFullLauncher.launch("Full_Backup_${sdf.format(Date())}.xlsx")
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("📥 Импорт полного бэкапа") },
+                                    onClick = { showExcelMenu = false; importFullLauncher.launch(arrayOf("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "application/vnd.ms-excel")) }
                                 )
                             }
                         }
