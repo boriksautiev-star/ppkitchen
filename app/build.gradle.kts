@@ -103,10 +103,8 @@ dependencies {
     // Запись (.xlsx) — оставляем fastexcel
     implementation("org.dhatim:fastexcel:0.20.2")
 
-    // Чтение (.xlsx) — используем проверенные перепакованные JAR-файлы из папки libs
-    // Убедитесь, что файлы poi-3.12-android-a.jar и poi-ooxml-schemas-3.12-20150511-a.jar
-    // лежат в папке app/libs/
-    implementation(fileTree(mapOf("dir" to "libs", "include" to listOf("*.jar"))))
+    // Чтение (.xlsx) — ЯВНО указываем JAR-файлы, чтобы IDE и компилятор их видели
+    implementation(files("libs/poi-3.12-android-a.jar", "libs/poi-ooxml-schemas-3.12-20150511-a.jar"))
 
     // --- OCR / Tesseract ---
     implementation("com.rmtheis:tess-two:9.1.0")

@@ -580,28 +580,75 @@ fun MultiIngredientPickerDialog(
 ) {
     var selectedIds by remember { mutableStateOf(setOf<Long>()) }
     var selectedCategory by remember { mutableStateOf("Все") }
+    var searchQuery by remember { mutableStateOf("") }
 
-    val filtered = ingredients.filter { selectedCategory == "Все" || it.category == selectedCategory }
+    val filtered = ingredients
+        .filter { selectedCategory == "Все" || it.category == selectedCategory }
+        .filter { searchQuery.isBlank() || it.name.contains(searchQuery, ignoreCase = true) }
 
-    AlertDialog(
+    Dialog(
         onDismissRequest = onDismiss,
-        title = { Text("Выберите ингредиенты") },
-        text = {
-            Column(Modifier.fillMaxWidth()) {
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+            Column(Modifier.fillMaxSize()) {
+                // Верхняя панель
+                CompactTopBar(
+                    title = "Выбор ингредиентов",
+                    onBack = onDismiss,
+                    actions = {
+                        TextButton(onClick = onDismiss) { Text("Отмена") }
+                    }
+                )
+
+                // Поиск
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = { searchQuery = it },
+                    label = { Text("Поиск ингредиента") },
+                    leadingIcon = { Icon(Icons.Default.Search, null) },
+                    trailingIcon = {
+                        if (searchQuery.isNotEmpty()) {
+                            IconButton(onClick = { searchQuery = "" }) {
+                                Icon(Icons.Default.Clear, "Очистить")
+                            }
+                        }
+                    },
+                    singleLine = true,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 8.dp)
+                )
+
+                // Категории
                 Row(
-                    Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(bottom = 8.dp),
+                    Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 4.dp),
                     horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    FilterChip(selected = selectedCategory == "Все", onClick = { selectedCategory = "Все" }, label = { Text("Все", style = MaterialTheme.typography.bodySmall) })
+                    FilterChip(
+                        selected = selectedCategory == "Все",
+                        onClick = { selectedCategory = "Все" },
+                        label = { Text("Все") }
+                    )
                     categories.forEach { cat ->
-                        FilterChip(selected = selectedCategory == cat.name, onClick = { selectedCategory = cat.name }, label = { Text(cat.name, style = MaterialTheme.typography.bodySmall) })
+                        FilterChip(
+                            selected = selectedCategory == cat.name,
+                            onClick = { selectedCategory = cat.name },
+                            label = { Text(cat.name) }
+                        )
                     }
                 }
 
+                // Список
                 if (filtered.isEmpty()) {
-                    Text("В этой категории пусто.")
+                    Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                        Text("Ничего не найдено.", style = MaterialTheme.typography.bodyLarge)
+                    }
                 } else {
-                    LazyColumn(Modifier.heightIn(max = 400.dp)) {
+                    LazyColumn(
+                        Modifier.weight(1f),
+                        contentPadding = PaddingValues(12.dp)
+                    ) {
                         items(filtered, key = { it.id }) { ing ->
                             val isChecked = selectedIds.contains(ing.id)
                             Row(
@@ -610,7 +657,7 @@ fun MultiIngredientPickerDialog(
                                     .clickable {
                                         selectedIds = if (isChecked) selectedIds - ing.id else selectedIds + ing.id
                                     }
-                                    .padding(vertical = 4.dp),
+                                    .padding(vertical = 8.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Checkbox(
@@ -620,29 +667,33 @@ fun MultiIngredientPickerDialog(
                                     }
                                 )
                                 Column(Modifier.weight(1f)) {
-                                    Text(ing.name, style = MaterialTheme.typography.bodyMedium)
-                                    Text(ing.category, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text(ing.name, style = MaterialTheme.typography.bodyLarge)
+                                    Text(
+                                        "${ing.category} · ${ing.unit}",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
                                 }
                             }
                             HorizontalDivider()
                         }
                     }
                 }
+
+                // Кнопка подтверждения внизу
+                Button(
+                    onClick = {
+                        val selectedIngs = ingredients.filter { selectedIds.contains(it.id) }
+                        onConfirm(selectedIngs)
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    enabled = selectedIds.isNotEmpty()
+                ) {
+                    Text("Добавить выбранные (${selectedIds.size})")
+                }
             }
-        },
-        confirmButton = {
-            Button(
-                onClick = {
-                    val selectedIngs = ingredients.filter { selectedIds.contains(it.id) }
-                    onConfirm(selectedIngs)
-                },
-                enabled = selectedIds.isNotEmpty()
-            ) {
-                Text("Добавить (${selectedIds.size})")
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Отмена") }
         }
-    )
+    }
 }

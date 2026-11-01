@@ -161,7 +161,7 @@ fun DishesScreen(
                     }
 
                     withContext(Dispatchers.Main) {
-                        Toast.makeText(ctx, "Импортировано: добавлено $added, обновлено $updated", Toast.LENGTH_LONG).show()
+                        Toast.makeText(ctx, "Импортировано: добавлено $added, обновлено $updated (БЖУ рассчитано)", Toast.LENGTH_LONG).show()
                     }
                 } catch (e: Throwable) {
                     withContext(Dispatchers.Main) {

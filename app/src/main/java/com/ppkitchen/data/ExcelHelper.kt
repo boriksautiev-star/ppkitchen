@@ -1,7 +1,5 @@
 package com.ppkitchen.data
 
-import android.content.Context
-import android.net.Uri
 import kotlinx.coroutines.flow.first
 import org.apache.poi.ss.usermodel.Cell
 import org.apache.poi.ss.usermodel.DataFormatter
@@ -9,6 +7,7 @@ import org.apache.poi.ss.usermodel.WorkbookFactory
 import org.dhatim.fastexcel.Workbook
 import java.io.InputStream
 import java.io.OutputStream
+import kotlin.math.roundToInt
 
 object ExcelHelper {
     private val excelFormatter = DataFormatter()
@@ -123,50 +122,56 @@ object ExcelHelper {
 
     fun createDishTemplate(out: OutputStream) {
         val wb = Workbook(out, "PP Kitchen", "1.0")
+
         val wsDishes = wb.newWorksheet("Блюда")
         wsDishes.value(0, 0, "Название"); wsDishes.value(0, 1, "Категория")
-        wsDishes.value(0, 2, "Ккал"); wsDishes.value(0, 3, "Белки")
-        wsDishes.value(0, 4, "Жиры"); wsDishes.value(0, 5, "Углеводы")
         wsDishes.value(1, 0, "Плов"); wsDishes.value(1, 1, "Обед")
-        wsDishes.value(1, 2, 350); wsDishes.value(1, 3, 15)
-        wsDishes.value(1, 4, 10); wsDishes.value(1, 5, 45)
+        wsDishes.value(2, 0, "Овсянка"); wsDishes.value(2, 1, "Завтрак")
 
-        val wsIngredients = wb.newWorksheet("Состав")
+        // Теперь просим Выход, так же, как и в программе
+        val wsIngredients = wb.newWorksheet("Состав (Техкарта)")
         wsIngredients.value(0, 0, "Название блюда"); wsIngredients.value(0, 1, "Ингредиент")
-        wsIngredients.value(0, 2, "Количество (г)"); wsIngredients.value(0, 3, "Способ обработки")
+        wsIngredients.value(0, 2, "Выход (г)"); wsIngredients.value(0, 3, "Способ обработки")
+
         wsIngredients.value(1, 0, "Плов"); wsIngredients.value(1, 1, "Рис")
         wsIngredients.value(1, 2, 100.0); wsIngredients.value(1, 3, "Варка")
+
         wsIngredients.value(2, 0, "Плов"); wsIngredients.value(2, 1, "Курица")
         wsIngredients.value(2, 2, 150.0); wsIngredients.value(2, 3, "Жарка")
+
+        wsIngredients.value(3, 0, "Овсянка"); wsIngredients.value(3, 1, "Овсяные хлопья")
+        wsIngredients.value(3, 2, 50.0); wsIngredients.value(3, 3, "Варка")
+
         wb.finish()
     }
 
     fun exportDishes(out: OutputStream, dishes: List<Dish>, dishIngredients: List<DishIngredient>, ingredients: List<Ingredient>) {
         val wb = Workbook(out, "PP Kitchen", "1.0")
+
         val wsDishes = wb.newWorksheet("Блюда")
         wsDishes.value(0, 0, "Название"); wsDishes.value(0, 1, "Категория")
-        wsDishes.value(0, 2, "Ккал"); wsDishes.value(0, 3, "Белки")
-        wsDishes.value(0, 4, "Жиры"); wsDishes.value(0, 5, "Углеводы")
 
         dishes.forEachIndexed { index, dish ->
             val row = index + 1
             wsDishes.value(row, 0, dish.name); wsDishes.value(row, 1, dish.category)
-            wsDishes.value(row, 2, dish.calories); wsDishes.value(row, 3, dish.protein)
-            wsDishes.value(row, 4, dish.fat); wsDishes.value(row, 5, dish.carbs)
         }
 
-        val wsIngredients = wb.newWorksheet("Состав")
+        val wsIngredients = wb.newWorksheet("Состав (Техкарта)")
         wsIngredients.value(0, 0, "Название блюда"); wsIngredients.value(0, 1, "Ингредиент")
-        wsIngredients.value(0, 2, "Количество (г)"); wsIngredients.value(0, 3, "Способ обработки")
+        wsIngredients.value(0, 2, "Выход (г)"); wsIngredients.value(0, 3, "Способ обработки")
 
         var rowIndex = 1
         dishIngredients.forEach { di ->
             val dish = dishes.find { it.id == di.dishId }
             val ing = ingredients.find { it.id == di.ingredientId }
             if (dish != null && ing != null) {
+                // При экспорте переводим Нетто (которое в базе) обратно в Выход
+                val loss = ing.getLossForMethod(di.cookingMethod)
+                val outputWeight = if (loss > 0) di.amount * ((100.0 - loss) / 100.0) else di.amount
+
                 wsIngredients.value(rowIndex, 0, dish.name)
                 wsIngredients.value(rowIndex, 1, ing.name)
-                wsIngredients.value(rowIndex, 2, di.amount)
+                wsIngredients.value(rowIndex, 2, outputWeight)
                 wsIngredients.value(rowIndex, 3, di.cookingMethod)
                 rowIndex++
             }
@@ -192,13 +197,9 @@ object ExcelHelper {
                     val name = excelFormatter.formatCellValue(row.getCell(0)).trim()
                     if (name.isNotBlank()) {
                         val cat = excelFormatter.formatCellValue(row.getCell(1)).trim().ifBlank { "Прочее" }
-                        val cal = excelFormatter.formatCellValue(row.getCell(2)).replace(',', '.').toDoubleOrNull()?.toInt() ?: 0
-                        val prot = excelFormatter.formatCellValue(row.getCell(3)).replace(',', '.').toDoubleOrNull()?.toInt() ?: 0
-                        val fat = excelFormatter.formatCellValue(row.getCell(4)).replace(',', '.').toDoubleOrNull()?.toInt() ?: 0
-                        val carb = excelFormatter.formatCellValue(row.getCell(5)).replace(',', '.').toDoubleOrNull()?.toInt() ?: 0
 
                         val existing = currentDishes.find { it.name.equals(name, ignoreCase = true) }
-                        val newDish = Dish(id = existing?.id ?: 0, name = name, category = cat, calories = cal, protein = prot, fat = fat, carbs = carb)
+                        val newDish = Dish(id = existing?.id ?: 0, name = name, category = cat, calories = 0, protein = 0, fat = 0, carbs = 0)
                         if (existing != null) toUpdateDishes.add(newDish) else toInsertDishes.add(newDish)
                     }
                 } catch (_: Exception) { }
@@ -211,12 +212,24 @@ object ExcelHelper {
                     try {
                         val dishName = excelFormatter.formatCellValue(row.getCell(0)).trim()
                         val ingName = excelFormatter.formatCellValue(row.getCell(1)).trim()
-                        val amount = excelFormatter.formatCellValue(row.getCell(2)).replace(',', '.').toDoubleOrNull() ?: 0.0
+                        val outputWeight = excelFormatter.formatCellValue(row.getCell(2)).replace(',', '.').toDoubleOrNull() ?: 0.0
                         val method = excelFormatter.formatCellValue(row.getCell(3)).trim().ifBlank { "Сырой" }
+
                         val ing = currentIngredients.find { it.name.equals(ingName, ignoreCase = true) }
 
-                        if (dishName.isNotBlank() && ing != null && amount > 0) {
-                            parsedIngredients.add(dishName to DishIngredient(dishId = 0, ingredientId = ing.id, amount = amount, cookingMethod = method))
+                        if (dishName.isNotBlank() && ing != null && outputWeight > 0) {
+                            // Считаем Нетто из Выхода, как это делает программа
+                            val loss = ing.getLossForMethod(method)
+                            val netto = if (loss > 0) outputWeight / ((100.0 - loss) / 100.0) else outputWeight
+
+                            parsedIngredients.add(
+                                dishName to DishIngredient(
+                                    dishId = 0,
+                                    ingredientId = ing.id,
+                                    amount = netto, // сохраняем именно Нетто!
+                                    cookingMethod = method
+                                )
+                            )
                         }
                     } catch (_: Exception) { }
                 }
@@ -225,15 +238,51 @@ object ExcelHelper {
             workbook.close()
         }
 
+        val ingredientsByDish = parsedIngredients.groupBy { it.first.lowercase() }
+
+        fun calcBju(dishName: String): Dish {
+            val ings = ingredientsByDish[dishName.lowercase()] ?: emptyList()
+            var kcal = 0.0; var prot = 0.0; var fat = 0.0; var carb = 0.0
+
+            for (pair in ings) {
+                val di = pair.second
+                val ing = currentIngredients.find { it.id == di.ingredientId } ?: continue
+
+                // В di.amount уже лежит Нетто. БЖУ считаем строго по Нетто.
+                val factor = if (ing.unit == "шт") di.amount else di.amount / 100.0
+
+                kcal += ing.calories * factor
+                prot += ing.protein * factor
+                fat += ing.fat * factor
+                carb += ing.carbs * factor
+            }
+
+            return Dish(
+                id = 0, name = dishName, category = "",
+                calories = kcal.roundToInt(),
+                protein = prot.roundToInt(),
+                fat = fat.roundToInt(),
+                carbs = carb.roundToInt()
+            )
+        }
+
         for (dish in toUpdateDishes) {
-            db.dishDao().update(dish)
-            dishMap[dish.name.lowercase()] = dish.id
-            db.dishIngredientDao().deleteForDish(dish.id)
+            val withBju = calcBju(dish.name)
+            val finalDish = dish.copy(calories = withBju.calories, protein = withBju.protein, fat = withBju.fat, carbs = withBju.carbs)
+
+            db.dishDao().update(finalDish)
+            dishMap[finalDish.name.lowercase()] = finalDish.id
+            db.dishIngredientDao().deleteForDish(finalDish.id)
         }
+
         for (dish in toInsertDishes) {
-            val newId = db.dishDao().insert(dish)
-            dishMap[dish.name.lowercase()] = newId
+            val withBju = calcBju(dish.name)
+            val finalDish = dish.copy(calories = withBju.calories, protein = withBju.protein, fat = withBju.fat, carbs = withBju.carbs)
+
+            val newId = db.dishDao().insert(finalDish)
+            dishMap[finalDish.name.lowercase()] = newId
         }
+
         for (pair in parsedIngredients) {
             val realDishId = dishMap[pair.first.lowercase()]
             if (realDishId != null) db.dishIngredientDao().insert(pair.second.copy(dishId = realDishId))
@@ -250,9 +299,9 @@ object ExcelHelper {
         val wb = Workbook(out, "PP Kitchen", "1.0")
         val ws = wb.newWorksheet("Меню")
         ws.value(0, 0, "День (число)"); ws.value(0, 1, "Прием пищи (для справки)"); ws.value(0, 2, "Название блюда")
-        ws.value(1, 0, 1); ws.value(1, 1, "Завтрак"); ws.value(1, 2, "Овсянка с ягодами")
-        ws.value(2, 0, 1); ws.value(2, 1, "Обед"); ws.value(2, 2, "Куриная грудка с рисом")
-        ws.value(3, 0, 2); ws.value(3, 1, "Завтрак"); ws.value(3, 2, "Омлет с сыром")
+        ws.value(1, 0, 1); ws.value(1, 1, "Завтрак"); ws.value(1, 2, "Овсянка")
+        ws.value(2, 0, 1); ws.value(2, 1, "Обед"); ws.value(2, 2, "Плов")
+        ws.value(3, 0, 2); ws.value(3, 1, "Завтрак"); ws.value(3, 2, "Омлет")
         wb.finish()
     }
 
