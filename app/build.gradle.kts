@@ -24,6 +24,8 @@ android {
         versionCode = 1
         versionName = "1.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        // Включаем multiDex для надёжности (хотя при minSdk 26 не обязательно)
+        multiDexEnabled = true
     }
 
     signingConfigs {
@@ -63,6 +65,9 @@ android {
             pickFirsts.add("**/libc++_shared.so")
             useLegacyPackaging = true
         }
+        resources {
+            excludes += "/META-INF/{AL2.0,LGPL2.1}"
+        }
     }
 
     sourceSets {
@@ -94,16 +99,20 @@ dependencies {
     implementation("androidx.work:work-runtime-ktx:2.9.1")
     implementation("androidx.documentfile:documentfile:1.0.1")
 
-    // Excel
+    // --- Excel ---
+    // Запись (.xlsx) — оставляем fastexcel
     implementation("org.dhatim:fastexcel:0.20.2")
-    implementation("org.dhatim:fastexcel-reader:0.20.2")
 
-    // --- OCR: Tesseract + OpenCV ---
+    // Чтение (.xlsx) — используем проверенные перепакованные JAR-файлы из папки libs
+    // Убедитесь, что файлы poi-3.12-android-a.jar и poi-ooxml-schemas-3.12-20150511-a.jar
+    // лежат в папке app/libs/
+    implementation(fileTree(mapOf("dir" to "libs", "include" to listOf("*.jar"))))
+
+    // --- OCR / Tesseract ---
     implementation("com.rmtheis:tess-two:9.1.0")
     implementation("com.quickbirdstudios:opencv:4.5.3.0")
-    implementation("com.squareup.okhttp3:okhttp:4.12.0")
 
-    // --- Камера ---
+    // --- CameraX ---
     implementation("androidx.camera:camera-core:1.3.4")
     implementation("androidx.camera:camera-camera2:1.3.4")
     implementation("androidx.camera:camera-lifecycle:1.3.4")

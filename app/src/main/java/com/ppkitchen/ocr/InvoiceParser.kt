@@ -6,7 +6,6 @@ import kotlin.math.abs
 object InvoiceParser {
 
     private val NUMBER_REGEX = Regex("\\d+[.,]?\\d*")
-    private val HEADER_WORDS = listOf("ккал", "калор", "белк", "жир", "углев", "брутто", "нетто", "выход")
 
     fun parseInvoice(lines: List<DetectedLine>): List<InvoiceRowDraft> {
         val rows = groupIntoRows(lines)
@@ -37,7 +36,6 @@ object InvoiceParser {
             if (row == headerRow) return@mapNotNull null
             val words = row.filter { it.text.any { c -> c.isLetterOrDigit() } && it.text.length > 1 }
             if (words.isEmpty()) return@mapNotNull null
-            if (words.all { w -> HEADER_WORDS.any { w.text.lowercase().contains(it) } }) return@mapNotNull null
 
             var cal = ""; var prot = ""; var fat = ""; var carb = ""
             val nameParts = mutableListOf<String>()
@@ -77,45 +75,12 @@ object InvoiceParser {
         }
     }
 
-    fun parseMenu(lines: List<DetectedLine>): List<InvoiceRowDraft> {
-        val rows = groupIntoRows(lines)
-        return rows.mapNotNull { row ->
-            var text = row.joinToString(" ") { it.text }
-
-            // 1. Убираем нумерацию в начале
-            text = text.replace(Regex("^\\d+[.)]\\s*"), "")
-
-            // 2. Отрезаем все числа и символы в конце строки (цены, граммы)
-            // Например: "Лук репчатый свежий 5,6 4,7" -> "Лук репчатый свежий"
-            text = text.replace(Regex("\\s+\\d+([.,]\\d+)?\\s+\\d+([.,]\\d+)?\\s*$"), "")
-            text = text.replace(Regex("\\s+\\d+([.,]\\d+)?\\s*$"), "")
-
-            // 3. Убираем лишние символы
-            text = text.replace(Regex("[^А-Яа-яЁёA-Za-z0-9\\s\\-\\/]"), " ")
-                .replace(Regex("\\s+"), " ")
-                .trim()
-
-            if (text.count { it.isLetter() } >= 2) {
-                val calMatch = Regex("(?i)(\\d+)\\s*(ккал|кал)").find(text)
-                val cal = calMatch?.groupValues?.get(1) ?: ""
-
-                // Убираем слово "Брутто", "Нетто", если они попали в текст
-                var cleanName = text
-                    .replace(Regex("(?i)\\bбрутто\\b|\\bнетто\\b|\\bвыход\\b|\\bг\\b"), "")
-                    .trim()
-
-                if (cleanName.isNotBlank()) {
-                    InvoiceRowDraft(name = cleanName, calories = cal)
-                } else null
-            } else null
-        }
-    }
-
     private fun groupIntoRows(lines: List<DetectedLine>): List<List<DetectedLine>> {
         val nonEmpty = lines.filter { it.text.isNotBlank() }
         if (nonEmpty.isEmpty()) return emptyList()
         val avgHeight = nonEmpty.map { it.height }.average().toInt().coerceAtLeast(10)
         val tolerance = (avgHeight * 1.5).toInt().coerceAtLeast(20)
+
         val sorted = nonEmpty.sortedBy { it.centerY }
         val rows = mutableListOf<MutableList<DetectedLine>>()
         val rowCenters = mutableListOf<Int>()

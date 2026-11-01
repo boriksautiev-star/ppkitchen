@@ -1,5 +1,8 @@
 package com.ppkitchen.ui
 
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
@@ -8,12 +11,12 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Folder
-import androidx.compose.material.icons.filled.MenuBook
 import androidx.compose.material.icons.filled.ShoppingBasket
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -29,7 +32,34 @@ import com.ppkitchen.ocr.OcrMode
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.util.Locale
+import java.text.SimpleDateFormat
+import java.util.*
+
+fun calculateDishCost(
+    dishId: Long,
+    dishIngredients: List<DishIngredient>,
+    ingredients: List<Ingredient>,
+    avgPrices: Map<Long, Double>
+): Double {
+    var cost = 0.0
+    for (di in dishIngredients) {
+        if (di.dishId == dishId) {
+            val ing = ingredients.find { it.id == di.ingredientId }
+            if (ing != null) {
+                val waste = ing.wastePercent.coerceIn(0.0, 99.9)
+                val bruttoAmount = if (waste > 0) di.amount / ((100.0 - waste) / 100.0) else di.amount
+                val currentPrice = avgPrices[ing.id] ?: ing.pricePerKg
+
+                cost += if (ing.unit == "шт") {
+                    bruttoAmount * currentPrice
+                } else {
+                    (bruttoAmount / 1000.0) * currentPrice
+                }
+            }
+        }
+    }
+    return cost
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -67,38 +97,89 @@ fun DishesScreen(
     var selectedCategory by remember { mutableStateOf("Все") }
     var sortMode by remember { mutableStateOf("name") }
     var showSortMenu by remember { mutableStateOf(false) }
+    var showExcelMenu by remember { mutableStateOf(false) }
 
-    fun calculateCost(dishId: Long): Double {
-        val dIngs = dishIngredients.filter { it.dishId == dishId }
-        var cost = 0.0
-        dIngs.forEach { di ->
-            val ing = ingredients.find { it.id == di.ingredientId }
-            if (ing != null) {
-                val waste = ing.wastePercent.coerceIn(0.0, 99.9)
-                val bruttoAmount = if (waste > 0) di.amount / ((100.0 - waste) / 100.0) else di.amount
-                val currentPrice = avgPrices[ing.id] ?: ing.pricePerKg
-
-                cost += if (ing.unit == "шт") {
-                    bruttoAmount * currentPrice
-                } else {
-                    (bruttoAmount / 1000.0) * currentPrice
+    // --- ЛОГИКА СКАЧИВАНИЯ ШАБЛОНА ---
+    val downloadTemplateLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    ) { uri ->
+        if (uri != null) {
+            scope.launch {
+                try {
+                    withContext(Dispatchers.IO) {
+                        ctx.contentResolver.openOutputStream(uri)?.use { out ->
+                            ExcelHelper.createDishTemplate(out)
+                        }
+                    }
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(ctx, "Шаблон Excel сохранен", Toast.LENGTH_LONG).show()
+                    }
+                } catch (e: Throwable) {
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(ctx, "Ошибка: ${e.message}", Toast.LENGTH_LONG).show()
+                    }
                 }
             }
         }
-        return cost
     }
 
-    val filteredAndSorted = dishes
-        .filter { selectedCategory == "Все" || it.category == selectedCategory }
-        .sortedWith(
-            when (sortMode) {
-                "calories_asc" -> compareBy { it.calories }
-                "calories_desc" -> compareByDescending { it.calories }
-                "cost_asc" -> compareBy { calculateCost(it.id) }
-                "cost_desc" -> compareByDescending { calculateCost(it.id) }
-                else -> compareBy { it.name.lowercase() }
+    // --- ЛОГИКА ЭКСПОРТА ---
+    val exportExcelLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    ) { uri ->
+        if (uri != null) {
+            scope.launch {
+                try {
+                    withContext(Dispatchers.IO) {
+                        ctx.contentResolver.openOutputStream(uri)?.use { out ->
+                            ExcelHelper.exportDishes(out, dishes, dishIngredients, ingredients)
+                        }
+                    }
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(ctx, "База блюд экспортирована", Toast.LENGTH_SHORT).show()
+                    }
+                } catch (e: Throwable) {
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(ctx, "Ошибка экспорта: ${e.message}", Toast.LENGTH_LONG).show()
+                    }
+                }
             }
-        )
+        }
+    }
+
+    // --- ЛОГИКА ИМПОРТА ---
+    val importExcelLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            scope.launch {
+                try {
+                    val (added, updated) = withContext(Dispatchers.IO) {
+                        ctx.contentResolver.openInputStream(uri)?.use { input ->
+                            ExcelHelper.importDishes(input, db)
+                        } ?: Pair(0, 0)
+                    }
+
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(ctx, "Импортировано: добавлено $added, обновлено $updated", Toast.LENGTH_LONG).show()
+                    }
+                } catch (e: Throwable) {
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(ctx, "Ошибка импорта: ${e.message}", Toast.LENGTH_LONG).show()
+                    }
+                }
+            }
+        }
+    }
+
+    val filtered = dishes.filter { selectedCategory == "Все" || it.category == selectedCategory }
+    val filteredAndSorted = when (sortMode) {
+        "calories_asc" -> filtered.sortedBy { it.calories }
+        "calories_desc" -> filtered.sortedByDescending { it.calories }
+        "cost_asc" -> filtered.sortedBy { calculateDishCost(it.id, dishIngredients, ingredients, avgPrices) }
+        "cost_desc" -> filtered.sortedByDescending { calculateDishCost(it.id, dishIngredients, ingredients, avgPrices) }
+        else -> filtered.sortedBy { it.name.lowercase() }
+    }
 
     Scaffold(
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
@@ -111,14 +192,37 @@ fun DishesScreen(
                 },
                 actions = {
                     if (selectedTab == 0) {
-                        IconButton(onClick = { onNavigateToOcr(OcrMode.MENU) }) {
-                            Icon(Icons.Default.MenuBook, "Сканер меню")
-                        }
                         IconButton(onClick = { showCategoryManager = true }) {
                             Icon(Icons.Default.Folder, "Группы блюд")
                         }
                         IconButton(onClick = { showIngredientDialog = true }) {
                             Icon(Icons.Default.ShoppingBasket, "Ингредиенты")
+                        }
+                        Box {
+                            IconButton(onClick = { showExcelMenu = true }) {
+                                Icon(Icons.AutoMirrored.Filled.List, "Excel")
+                            }
+                            DropdownMenu(
+                                expanded = showExcelMenu,
+                                onDismissRequest = { showExcelMenu = false }
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("Скачать шаблон Excel") },
+                                    onClick = { showExcelMenu = false; downloadTemplateLauncher.launch("Шаблон_блюд_PP_Kitchen.xlsx") }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Импорт блюд (Excel)") },
+                                    onClick = { showExcelMenu = false; importExcelLauncher.launch(arrayOf("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "application/vnd.ms-excel")) }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Экспорт блюд (Excel)") },
+                                    onClick = {
+                                        showExcelMenu = false
+                                        val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
+                                        exportExcelLauncher.launch("dishes_${sdf.format(Date())}.xlsx")
+                                    }
+                                )
+                            }
                         }
                         Box {
                             IconButton(onClick = { showSortMenu = true }) {
@@ -177,7 +281,7 @@ fun DishesScreen(
                             verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             items(filteredAndSorted, key = { it.id }) { dish ->
-                                val cost = calculateCost(dish.id)
+                                val cost = calculateDishCost(dish.id, dishIngredients, ingredients, avgPrices)
 
                                 Card(
                                     Modifier.fillMaxWidth().clickable { viewingDish = dish }
@@ -208,13 +312,9 @@ fun DishesScreen(
                     }
                 }
             } else if (selectedTab == 1) {
-                Box(Modifier.fillMaxSize()) {
-                    MenuTemplatesScreen()
-                }
+                Box(Modifier.fillMaxSize()) { MenuTemplatesScreen() }
             } else {
-                Box(Modifier.fillMaxSize()) {
-                    RationsScreen()
-                }
+                Box(Modifier.fillMaxSize()) { RationsScreen() }
             }
         }
     }
@@ -260,7 +360,7 @@ fun DishesScreen(
             ingredients = ingredients,
             dishIngredients = dishIngredients,
             avgPrices = avgPrices,
-            cost = calculateCost(viewingDish!!.id),
+            cost = calculateDishCost(viewingDish!!.id, dishIngredients, ingredients, avgPrices),
             onEdit = {
                 editingDish = viewingDish
                 viewingDish = null
@@ -286,8 +386,7 @@ fun DishesScreen(
                                 db.dishIngredientDao().deleteForDish(dishToDelete!!.id)
                                 db.dishDao().delete(dishToDelete!!)
                                 dishToDelete = null
-                            } catch (e: Exception) {
-                            }
+                            } catch (e: Throwable) {}
                         }
                     }
                 ) {
@@ -295,9 +394,7 @@ fun DishesScreen(
                 }
             },
             dismissButton = {
-                TextButton(onClick = { dishToDelete = null }) {
-                    Text("Отмена")
-                }
+                TextButton(onClick = { dishToDelete = null }) { Text("Отмена") }
             }
         )
     }
@@ -327,40 +424,26 @@ fun DishDetailScreen(
                     title = dish.name,
                     onBack = onDismiss,
                     actions = {
-                        IconButton(onClick = onEdit) {
-                            Icon(Icons.Default.Edit, "Редактировать")
-                        }
-                        IconButton(onClick = onDelete) {
-                            Icon(Icons.Default.Delete, "Удалить", tint = MaterialTheme.colorScheme.error)
-                        }
+                        IconButton(onClick = onEdit) { Icon(Icons.Default.Edit, "Редактировать") }
+                        IconButton(onClick = onDelete) { Icon(Icons.Default.Delete, "Удалить", tint = MaterialTheme.colorScheme.error) }
                     }
                 )
 
                 Column(
-                    Modifier
-                        .fillMaxSize()
-                        .verticalScroll(rememberScrollState())
-                        .padding(16.dp),
+                    Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
                     Card(Modifier.fillMaxWidth()) {
                         Column(Modifier.padding(16.dp)) {
                             Text("Группа: ${dish.category}", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             Spacer(Modifier.height(8.dp))
-
                             Text("Пищевая ценность:", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
                             Text("Калории: ${dish.calories} ккал", style = MaterialTheme.typography.bodyMedium)
                             Text("Белки: ${dish.protein} г", style = MaterialTheme.typography.bodyMedium)
                             Text("Жиры: ${dish.fat} г", style = MaterialTheme.typography.bodyMedium)
                             Text("Углеводы: ${dish.carbs} г", style = MaterialTheme.typography.bodyMedium)
                             Spacer(Modifier.height(8.dp))
-
-                            Text(
-                                "Себестоимость: ${String.format(Locale.US, "%.2f", cost)} ₽",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.primary
-                            )
+                            Text("Себестоимость: ${String.format(Locale.US, "%.2f", cost)} ₽", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
                         }
                     }
 
@@ -373,27 +456,15 @@ fun DishDetailScreen(
                                     if (ing != null) {
                                         val heatLoss = ing.getLossForMethod(di.cookingMethod)
                                         val output = if (heatLoss > 0) di.amount * ((100.0 - heatLoss) / 100.0) else di.amount
-
                                         val waste = ing.wastePercent.coerceIn(0.0, 99.9)
                                         val brutto = if (waste > 0) di.amount / ((100.0 - waste) / 100.0) else di.amount
-
                                         val outputStr = String.format(Locale.US, "%.1f", output)
                                         val nettoString = String.format(Locale.US, "%.1f", di.amount)
                                         val bruttoString = String.format(Locale.US, "%.1f", brutto)
-
-                                        val displayUnit = when(ing.unit) {
-                                            "кг" -> "г"
-                                            "л" -> "мл"
-                                            else -> ing.unit
-                                        }
-
+                                        val displayUnit = when(ing.unit) { "кг" -> "г"; "л" -> "мл"; else -> ing.unit }
                                         val priceToShow = avgPrices[ing.id] ?: ing.pricePerKg
 
-                                        Row(
-                                            Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.SpaceBetween,
-                                            verticalAlignment = Alignment.Top
-                                        ) {
+                                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Top) {
                                             Column(Modifier.weight(1f)) {
                                                 Text(ing.name, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
                                                 Text("Способ обработки: ${di.cookingMethod}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.tertiary)
@@ -403,9 +474,7 @@ fun DishDetailScreen(
                                             Column(horizontalAlignment = Alignment.End) {
                                                 Text("Выход: $outputStr $displayUnit", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
                                                 Text("Нетто: $nettoString $displayUnit", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                                if (waste > 0) {
-                                                    Text("Брутто: $bruttoString $displayUnit", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                                }
+                                                if (waste > 0) Text("Брутто: $bruttoString $displayUnit", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                             }
                                         }
                                         HorizontalDivider()
@@ -414,11 +483,8 @@ fun DishDetailScreen(
                             }
                         }
                     }
-
                     Spacer(Modifier.height(24.dp))
-                    Button(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) {
-                        Text("Закрыть")
-                    }
+                    Button(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) { Text("Закрыть") }
                 }
             }
         }

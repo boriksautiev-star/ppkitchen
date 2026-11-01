@@ -196,7 +196,7 @@ class OcrViewModel : ViewModel() {
     private fun processBitmapAsync(originalBitmap: Bitmap, mode: OcrMode) {
         _state.value = OcrState.Processing
         _error.value = null
-        _statusMessage.value = "Очистка таблицы от линий..."
+        _statusMessage.value = "Улучшение изображения..."
 
         viewModelScope.launch(Dispatchers.Default) {
             val api = tessBaseAPI
@@ -231,7 +231,6 @@ class OcrViewModel : ViewModel() {
                 val parsed = when (mode) {
                     OcrMode.INVOICE -> InvoiceParser.parseInvoice(detectedLines)
                     OcrMode.REFERENCE -> InvoiceParser.parseReference(detectedLines)
-                    OcrMode.MENU -> InvoiceParser.parseMenu(detectedLines)
                 }
 
                 withContext(Dispatchers.Main) {
@@ -286,20 +285,27 @@ class OcrViewModel : ViewModel() {
             val src = Mat()
             Utils.bitmapToMat(bitmap, src)
 
+            val resized = Mat()
+            if (src.cols() < 1500) {
+                Imgproc.resize(src, resized, Size(src.cols() * 2.0, src.rows() * 2.0), 0.0, 0.0, Imgproc.INTER_CUBIC)
+            } else {
+                src.copyTo(resized)
+            }
+
             val gray = Mat()
-            Imgproc.cvtColor(src, gray, Imgproc.COLOR_RGBA2GRAY)
+            Imgproc.cvtColor(resized, gray, Imgproc.COLOR_RGBA2GRAY)
 
             val bw = Mat()
             Imgproc.threshold(gray, bw, 0.0, 255.0, Imgproc.THRESH_BINARY_INV + Imgproc.THRESH_OTSU)
 
             val horizontal = bw.clone()
-            val horizontalSize = src.cols() / 10
+            val horizontalSize = resized.cols() / 15
             val horizontalKernel = Imgproc.getStructuringElement(Imgproc.MORPH_RECT, Size(horizontalSize.toDouble(), 1.0))
             Imgproc.erode(horizontal, horizontal, horizontalKernel)
             Imgproc.dilate(horizontal, horizontal, horizontalKernel)
 
             val vertical = bw.clone()
-            val verticalSize = src.rows() / 10
+            val verticalSize = resized.rows() / 15
             val verticalKernel = Imgproc.getStructuringElement(Imgproc.MORPH_RECT, Size(1.0, verticalSize.toDouble()))
             Imgproc.erode(vertical, vertical, verticalKernel)
             Imgproc.dilate(vertical, vertical, verticalKernel)
@@ -314,7 +320,7 @@ class OcrViewModel : ViewModel() {
             val resultBitmap = Bitmap.createBitmap(finalMat.cols(), finalMat.rows(), Bitmap.Config.ARGB_8888)
             Utils.matToBitmap(finalMat, resultBitmap)
 
-            src.release(); gray.release(); bw.release()
+            src.release(); resized.release(); gray.release(); bw.release()
             horizontal.release(); vertical.release(); lines.release()
             resultMat.release(); finalMat.release()
 

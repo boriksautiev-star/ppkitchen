@@ -96,7 +96,6 @@ fun OcrInvoiceScreen(
                     val title = when(mode) {
                         OcrMode.INVOICE -> "Скан накладной"
                         OcrMode.REFERENCE -> "Скан справочника БЖУ"
-                        OcrMode.MENU -> "Скан меню / рецептов"
                     }
                     Text(title)
                 },
@@ -281,23 +280,21 @@ private fun DraftList(
             modifier = Modifier.fillMaxWidth()
         ) {
             Column(Modifier.padding(12.dp)) {
-                if (mode != OcrMode.MENU) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Checkbox(
-                            checked = updateDb,
-                            onCheckedChange = { updateDb = it }
-                        )
-                        Spacer(Modifier.width(8.dp))
-                        Column {
-                            Text("Обновить данные в базе", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
-                            Text("Если снять галочку, данные не изменятся", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Checkbox(
+                        checked = updateDb,
+                        onCheckedChange = { updateDb = it }
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Column {
+                        Text("Обновить данные в базе", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+                        Text("Если снять галочку, данные не изменятся", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
-                    Spacer(Modifier.height(12.dp))
                 }
+                Spacer(Modifier.height(12.dp))
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -370,7 +367,7 @@ private fun DraftRowCard(
                         modifier = Modifier.weight(1f)
                     )
                 }
-            } else if (mode == OcrMode.REFERENCE) {
+            } else {
                 Row(
                     modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -403,20 +400,6 @@ private fun DraftRowCard(
                         value = row.carbs,
                         onValueChange = { onChange(row.copy(carbs = it)) },
                         label = { Text("У") },
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                        modifier = Modifier.weight(1f)
-                    )
-                }
-            } else {
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    OutlinedTextField(
-                        value = row.calories,
-                        onValueChange = { onChange(row.copy(calories = it)) },
-                        label = { Text("Ккал (необязательно)") },
                         singleLine = true,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                         modifier = Modifier.weight(1f)

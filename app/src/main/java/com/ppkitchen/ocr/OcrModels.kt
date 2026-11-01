@@ -23,14 +23,14 @@ data class InvoiceRowDraft(
 
 enum class OcrState {
     Camera,
-    Crop,      // <-- НОВЫЙ СТАТУС
+    Crop,
     Processing,
     Draft,
     Error
 }
 
+// Только два режима
 enum class OcrMode {
     INVOICE,
-    REFERENCE,
-    MENU
+    REFERENCE
 }

@@ -19,7 +19,6 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.ppkitchen.data.AppDatabase
-import com.ppkitchen.data.Dish
 import com.ppkitchen.data.Ingredient
 import com.ppkitchen.data.IngredientPrice
 import com.ppkitchen.ocr.InvoiceRowDraft
@@ -136,27 +135,6 @@ fun MainScreen(
                     mode = mode,
                     onBack = { navController.popBackStack() },
                     onSave = { drafts: List<InvoiceRowDraft>, updateDb: Boolean ->
-
-                        // Если это сканер МЕНЮ, сохраняем блюда
-                        if (mode == OcrMode.MENU) {
-                            scope.launch(Dispatchers.IO) {
-                                val db = AppDatabase.get(context)
-                                for (draft in drafts) {
-                                    if (draft.name.isBlank()) continue
-                                    val newDish = Dish(
-                                        name = draft.name,
-                                        category = "Прочее",
-                                        calories = draft.calories.toDoubleOrNull()?.toInt() ?: 0,
-                                        protein = 0, fat = 0, carbs = 0
-                                    )
-                                    db.dishDao().insert(newDish)
-                                }
-                                withContext(Dispatchers.Main) {
-                                    navController.popBackStack()
-                                }
-                            }
-                            return@OcrInvoiceScreen
-                        }
 
                         if (!updateDb) {
                             navController.popBackStack()

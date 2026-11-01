@@ -21,16 +21,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import com.ppkitchen.data.AppDatabase
-import com.ppkitchen.data.FoodReference
-import com.ppkitchen.data.FoodReferenceInitializer
-import com.ppkitchen.data.Ingredient
-import com.ppkitchen.data.IngredientCategory
+import com.ppkitchen.data.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import org.dhatim.fastexcel.Workbook
-import org.dhatim.fastexcel.reader.ReadableWorkbook
 import org.json.JSONArray
 import java.util.Locale
 
@@ -38,7 +32,7 @@ import java.util.Locale
 fun IngredientManagerDialog(
     ingredients: List<Ingredient>,
     onDismiss: () -> Unit,
-    onNavigateToOcr: () -> Unit // <--- БЕЗ ПАРАМЕТРОВ
+    onNavigateToOcr: () -> Unit
 ) {
     val ctx = LocalContext.current
     val db = remember { AppDatabase.get(ctx) }
@@ -77,44 +71,13 @@ fun IngredientManagerDialog(
                 try {
                     withContext(Dispatchers.IO) {
                         ctx.contentResolver.openOutputStream(uri)?.use { out ->
-                            val wb = Workbook(out, "PP Kitchen", "1.0")
-                            val ws = wb.newWorksheet("Ингредиенты")
-
-                            ws.value(0, 0, "Название")
-                            ws.value(0, 1, "Цена")
-                            ws.value(0, 2, "Категория")
-                            ws.value(0, 3, "Ед.изм")
-                            ws.value(0, 4, "Ккал")
-                            ws.value(0, 5, "Белки")
-                            ws.value(0, 6, "Жиры")
-                            ws.value(0, 7, "Углеводы")
-                            ws.value(0, 8, "Отходы(%)")
-                            ws.value(0, 9, "Варка(%)")
-                            ws.value(0, 10, "Жарка(%)")
-                            ws.value(0, 11, "Запекание(%)")
-                            ws.value(0, 12, "Тушение(%)")
-
-                            ws.value(1, 0, "Курица грудка")
-                            ws.value(1, 1, 350.0)
-                            ws.value(1, 2, "Мясо")
-                            ws.value(1, 3, "г")
-                            ws.value(1, 4, 113.0)
-                            ws.value(1, 5, 23.6)
-                            ws.value(1, 6, 1.9)
-                            ws.value(1, 7, 0.4)
-                            ws.value(1, 8, 5.0)
-                            ws.value(1, 9, 25.0)
-                            ws.value(1, 10, 35.0)
-                            ws.value(1, 11, 40.0)
-                            ws.value(1, 12, 30.0)
-
-                            wb.finish()
+                            ExcelHelper.createIngredientTemplate(out)
                         }
                     }
                     withContext(Dispatchers.Main) {
                         Toast.makeText(ctx, "Шаблон Excel сохранен", Toast.LENGTH_LONG).show()
                     }
-                } catch (e: Exception) {
+                } catch (e: Throwable) {
                     withContext(Dispatchers.Main) {
                         Toast.makeText(ctx, "Ошибка: ${e.message}", Toast.LENGTH_LONG).show()
                     }
@@ -130,64 +93,19 @@ fun IngredientManagerDialog(
         if (uri != null) {
             scope.launch {
                 try {
-                    val toInsert = mutableListOf<Ingredient>()
-                    val toUpdate = mutableListOf<Ingredient>()
-
-                    withContext(Dispatchers.IO) {
+                    val (toUpdate, toInsert) = withContext(Dispatchers.IO) {
                         ctx.contentResolver.openInputStream(uri)?.use { input ->
-                            ReadableWorkbook(input).use { wb ->
-                                val sheet = wb.firstSheet
-                                sheet?.openStream()?.use { rows ->
-                                    rows.skip(1).forEach { row ->
-                                        try {
-                                            val name = row.getCell(0)?.asString()?.trim() ?: ""
-                                            if (name.isNotBlank()) {
-                                                val price = row.getCell(1)?.asNumber()?.toDouble() ?: 0.0
-                                                val cat = row.getCell(2)?.asString()?.trim() ?: "Прочее"
-                                                val unit = row.getCell(3)?.asString()?.trim() ?: "г"
-                                                val kcal = row.getCell(4)?.asNumber()?.toDouble() ?: 0.0
-                                                val prot = row.getCell(5)?.asNumber()?.toDouble() ?: 0.0
-                                                val fat = row.getCell(6)?.asNumber()?.toDouble() ?: 0.0
-                                                val carb = row.getCell(7)?.asNumber()?.toDouble() ?: 0.0
-                                                val waste = row.getCell(8)?.asNumber()?.toDouble() ?: 0.0
-                                                val lossBoil = row.getCell(9)?.asNumber()?.toDouble() ?: 0.0
-                                                val lossFry = row.getCell(10)?.asNumber()?.toDouble() ?: 0.0
-                                                val lossBake = row.getCell(11)?.asNumber()?.toDouble() ?: 0.0
-                                                val lossStew = row.getCell(12)?.asNumber()?.toDouble() ?: 0.0
-
-                                                val existing = ingredients.find { it.name.equals(name, ignoreCase = true) }
-                                                val newIng = Ingredient(
-                                                    id = existing?.id ?: 0,
-                                                    name = name,
-                                                    pricePerKg = price,
-                                                    category = cat,
-                                                    unit = unit,
-                                                    calories = kcal,
-                                                    protein = prot,
-                                                    fat = fat,
-                                                    carbs = carb,
-                                                    wastePercent = waste,
-                                                    lossBoiling = lossBoil,
-                                                    lossFrying = lossFry,
-                                                    lossBaking = lossBake,
-                                                    lossStewing = lossStew
-                                                )
-                                                if (existing != null) toUpdate.add(newIng) else toInsert.add(newIng)
-                                            }
-                                        } catch (_: Exception) { }
-                                    }
-                                }
-                            }
-                        }
+                            ExcelHelper.importIngredients(input, ingredients)
+                        } ?: Pair(emptyList(), emptyList())
                     }
 
-                    toUpdate.forEach { db.ingredientDao().update(it) }
-                    toInsert.forEach { db.ingredientDao().insert(it) }
+                    for (ing in toUpdate) db.ingredientDao().update(ing)
+                    for (ing in toInsert) db.ingredientDao().insert(ing)
 
                     withContext(Dispatchers.Main) {
                         Toast.makeText(ctx, "Импортировано: обновлено ${toUpdate.size}, добавлено ${toInsert.size}", Toast.LENGTH_LONG).show()
                     }
-                } catch (e: Exception) {
+                } catch (e: Throwable) {
                     withContext(Dispatchers.Main) {
                         Toast.makeText(ctx, "Ошибка импорта Excel: ${e.message}", Toast.LENGTH_LONG).show()
                     }
@@ -205,46 +123,13 @@ fun IngredientManagerDialog(
                 try {
                     withContext(Dispatchers.IO) {
                         ctx.contentResolver.openOutputStream(uri)?.use { out ->
-                            val wb = Workbook(out, "PP Kitchen", "1.0")
-                            val ws = wb.newWorksheet("Ингредиенты")
-
-                            ws.value(0, 0, "Название")
-                            ws.value(0, 1, "Цена")
-                            ws.value(0, 2, "Категория")
-                            ws.value(0, 3, "Ед.изм")
-                            ws.value(0, 4, "Ккал")
-                            ws.value(0, 5, "Белки")
-                            ws.value(0, 6, "Жиры")
-                            ws.value(0, 7, "Углеводы")
-                            ws.value(0, 8, "Отходы(%)")
-                            ws.value(0, 9, "Варка(%)")
-                            ws.value(0, 10, "Жарка(%)")
-                            ws.value(0, 11, "Запекание(%)")
-                            ws.value(0, 12, "Тушение(%)")
-
-                            ingredients.forEachIndexed { index, ing ->
-                                val row = index + 1
-                                ws.value(row, 0, ing.name)
-                                ws.value(row, 1, ing.pricePerKg)
-                                ws.value(row, 2, ing.category)
-                                ws.value(row, 3, ing.unit)
-                                ws.value(row, 4, ing.calories)
-                                ws.value(row, 5, ing.protein)
-                                ws.value(row, 6, ing.fat)
-                                ws.value(row, 7, ing.carbs)
-                                ws.value(row, 8, ing.wastePercent)
-                                ws.value(row, 9, ing.lossBoiling)
-                                ws.value(row, 10, ing.lossFrying)
-                                ws.value(row, 11, ing.lossBaking)
-                                ws.value(row, 12, ing.lossStewing)
-                            }
-                            wb.finish()
+                            ExcelHelper.exportIngredients(out, ingredients)
                         }
                     }
                     withContext(Dispatchers.Main) {
                         Toast.makeText(ctx, "Экспортировано в Excel", Toast.LENGTH_SHORT).show()
                     }
-                } catch (e: Exception) {
+                } catch (e: Throwable) {
                     withContext(Dispatchers.Main) {
                         Toast.makeText(ctx, "Ошибка экспорта: ${e.message}", Toast.LENGTH_LONG).show()
                     }
@@ -333,11 +218,9 @@ fun IngredientManagerDialog(
                     title = "Ингредиенты",
                     onBack = onDismiss,
                     actions = {
-                        // --- КНОПКА СКАНЕРА ---
                         IconButton(onClick = onNavigateToOcr) {
                             Icon(Icons.Default.PhotoCamera, contentDescription = "Сканер справочников")
                         }
-                        // ----------------------
                         IconButton(onClick = { showCategoryManager = true }) {
                             Icon(Icons.Default.Folder, "Категории")
                         }

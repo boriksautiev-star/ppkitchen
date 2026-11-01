@@ -1,5 +1,8 @@
 package com.ppkitchen.ui
 
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -9,6 +12,8 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.FileDownload
+import androidx.compose.material.icons.filled.FileUpload
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -16,11 +21,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.ppkitchen.data.AppDatabase
-import com.ppkitchen.data.MenuDay
-import com.ppkitchen.data.MenuTemplate
+import com.ppkitchen.data.*
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -38,6 +43,96 @@ fun MenuTemplatesScreen() {
     var templateToDelete by remember { mutableStateOf<MenuTemplate?>(null) }
     var templateToEdit by remember { mutableStateOf<MenuTemplate?>(null) }
 
+    // --- 1. СКАЧИВАНИЕ ПУСТОГО ШАБЛОНА ---
+    val downloadTemplateLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    ) { uri ->
+        if (uri != null) {
+            scope.launch {
+                try {
+                    withContext(Dispatchers.IO) {
+                        ctx.contentResolver.openOutputStream(uri)?.use { out ->
+                            ExcelHelper.createMenuTemplate(out)
+                        }
+                    }
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(ctx, "Шаблон Excel сохранен", Toast.LENGTH_LONG).show()
+                    }
+                } catch (e: Exception) {
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(ctx, "Ошибка: ${e.message}", Toast.LENGTH_LONG).show()
+                    }
+                }
+            }
+        }
+    }
+
+    // --- 2. ЭКСПОРТ КОНКРЕТНОГО МЕНЮ ---
+    var templateToExport by remember { mutableStateOf<MenuTemplate?>(null) }
+    val exportMenuLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    ) { uri ->
+        if (uri != null && templateToExport != null) {
+            val currentTemplate = templateToExport!!
+            scope.launch {
+                try {
+                    withContext(Dispatchers.IO) {
+                        ctx.contentResolver.openOutputStream(uri)?.use { out ->
+                            ExcelHelper.exportMenu(out, currentTemplate, db)
+                        }
+                    }
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(ctx, "Меню экспортировано", Toast.LENGTH_SHORT).show()
+                    }
+                } catch (e: Exception) {
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(ctx, "Ошибка экспорта: ${e.message}", Toast.LENGTH_LONG).show()
+                    }
+                }
+            }
+        }
+    }
+
+    fun exportMenuToExcel(template: MenuTemplate) {
+        val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
+        val safeName = template.name.replace(Regex("[^a-zA-Z0-9а-яА-Я ]"), "").replace(" ", "_")
+        val fileName = "Меню_${safeName}_${sdf.format(Date())}.xlsx"
+        templateToExport = template
+        exportMenuLauncher.launch(fileName)
+    }
+
+    // --- 3. ИМПОРТ В КОНКРЕТНОЕ МЕНЮ ---
+    var templateToImport by remember { mutableStateOf<MenuTemplate?>(null) }
+    val importMenuLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null && templateToImport != null) {
+            val currentTemplate = templateToImport!!
+            scope.launch {
+                try {
+                    val addedCount = withContext(Dispatchers.IO) {
+                        ctx.contentResolver.openInputStream(uri)?.use { input ->
+                            ExcelHelper.importMenu(input, currentTemplate, db)
+                        } ?: 0
+                    }
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(ctx, "Импортировано блюд: $addedCount", Toast.LENGTH_LONG).show()
+                    }
+                } catch (e: Throwable) {
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(ctx, "Ошибка импорта: ${e.message}", Toast.LENGTH_LONG).show()
+                    }
+                }
+            }
+        }
+    }
+
+    fun importMenuFromExcel(template: MenuTemplate) {
+        templateToImport = template
+        importMenuLauncher.launch(arrayOf("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "application/vnd.ms-excel"))
+    }
+
+    // --- UI ---
     Scaffold(
         floatingActionButton = {
             FloatingActionButton(onClick = { showCreateDialog = true }) {
@@ -46,6 +141,17 @@ fun MenuTemplatesScreen() {
         }
     ) { pad ->
         Column(Modifier.padding(pad).fillMaxSize()) {
+
+            OutlinedButton(
+                onClick = { downloadTemplateLauncher.launch("Шаблон_меню.xlsx") },
+                modifier = Modifier.fillMaxWidth().padding(12.dp),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.tertiary)
+            ) {
+                Icon(Icons.Default.DateRange, null)
+                Spacer(Modifier.width(8.dp))
+                Text("Скачать шаблон Excel для меню")
+            }
+
             if (templates.isEmpty()) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Text(
@@ -56,21 +162,23 @@ fun MenuTemplatesScreen() {
             } else {
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(12.dp),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     items(templates, key = { it.id }) { template ->
                         Card(
-                            Modifier
-                                .fillMaxWidth()
-                                .clickable { selectedTemplate = template }
+                            Modifier.fillMaxWidth()
                         ) {
                             Row(
                                 Modifier.padding(16.dp),
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Column(Modifier.weight(1f)) {
+                                Column(
+                                    Modifier
+                                        .weight(1f)
+                                        .clickable { selectedTemplate = template }
+                                ) {
                                     Text(
                                         template.name,
                                         style = MaterialTheme.typography.titleMedium,
@@ -82,14 +190,31 @@ fun MenuTemplatesScreen() {
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                 }
-                                // НОВАЯ КНОПКА РЕДАКТИРОВАНИЯ
+
+                                IconButton(onClick = { importMenuFromExcel(template) }) {
+                                    Icon(
+                                        Icons.Default.FileUpload,
+                                        "Импорт",
+                                        tint = MaterialTheme.colorScheme.secondary
+                                    )
+                                }
+
+                                IconButton(onClick = { exportMenuToExcel(template) }) {
+                                    Icon(
+                                        Icons.Default.FileDownload,
+                                        "Экспорт",
+                                        tint = MaterialTheme.colorScheme.secondary
+                                    )
+                                }
+
                                 IconButton(onClick = { templateToEdit = template }) {
                                     Icon(
                                         Icons.Default.Edit,
-                                        "Редактировать",
+                                        "Настройки",
                                         tint = MaterialTheme.colorScheme.primary
                                     )
                                 }
+
                                 IconButton(onClick = { templateToDelete = template }) {
                                     Icon(
                                         Icons.Default.Delete,
@@ -120,7 +245,6 @@ fun MenuTemplatesScreen() {
         )
     }
 
-    // ДИАЛОГ РЕДАКТИРОВАНИЯ ШАБЛОНА
     if (templateToEdit != null) {
         EditMenuTemplateDialog(
             template = templateToEdit!!,
@@ -128,17 +252,14 @@ fun MenuTemplatesScreen() {
                 scope.launch {
                     db.menuTemplateDao().update(updatedTemplate)
 
-                    // Обновляем дни, если изменилась длина цикла
                     val currentDays = db.menuDayDao().getDaysForTemplate(updatedTemplate.id).first()
                     val currentCount = currentDays.size
 
                     if (updatedTemplate.cycleLength > currentCount) {
-                        // Добавляем недостающие дни
                         for (i in (currentCount + 1)..updatedTemplate.cycleLength) {
                             db.menuDayDao().insert(MenuDay(templateId = updatedTemplate.id, dayNumber = i))
                         }
                     } else if (updatedTemplate.cycleLength < currentCount) {
-                        // Удаляем лишние дни и их блюда
                         currentDays.filter { it.dayNumber > updatedTemplate.cycleLength }.forEach { day ->
                             db.menuDayDishDao().deleteForDay(day.id)
                             db.menuDayDao().delete(day)
