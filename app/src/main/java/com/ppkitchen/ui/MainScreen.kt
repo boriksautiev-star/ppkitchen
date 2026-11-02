@@ -41,13 +41,13 @@ fun MainScreen(
         Triple("dashboard", "Отчёт", Icons.Default.Home),
         Triple("clients", "Клиенты", Icons.Default.Person),
         Triple("orders", "Заказы", Icons.Default.ShoppingCart),
-        Triple("dishes", "Блюда", Icons.Default.Restaurant),
+        Triple("kitchen", "Кухня", Icons.Default.Restaurant),
         Triple("expenses", "Расходы", Icons.Default.AttachMoney),
         Triple("cash", "Касса", Icons.Default.Savings)
     )
 
     val currentRoute = navController.currentBackStackEntryAsState().value?.destination?.route
-    val showBottomBar = currentRoute in listOf("dashboard", "clients", "orders", "dishes", "expenses", "cash")
+    val showBottomBar = currentRoute in listOf("dashboard", "clients", "orders", "kitchen", "expenses", "cash")
 
     Scaffold(
         bottomBar = {
@@ -93,13 +93,34 @@ fun MainScreen(
                     onNavigateToOcr = { mode: OcrMode -> navController.navigate("ocr/${mode.name}") }
                 )
             }
-            composable("dishes") {
+
+            // --- НОВАЯ КУХНЯ ---
+            composable("kitchen") {
+                KitchenDashboardScreen(
+                    onOpenIngredients = { navController.navigate("ingredients") },
+                    onOpenDishes = { navController.navigate("dishes_list") },
+                    onOpenMenu = { navController.navigate("menu_templates") }
+                )
+            }
+            composable("ingredients") {
+                IngredientsScreen(onBack = { navController.popBackStack() })
+            }
+            composable("dishes_list") {
                 DishesScreen(
+                    onBack = { navController.popBackStack() },
                     onNavigateToOcr = { mode: OcrMode -> navController.navigate("ocr/${mode.name}") }
                 )
             }
-            composable("expenses") { ExpensesScreen() }
+            composable("menu_templates") {
+                MenuTemplatesScreen(onBack = { navController.popBackStack() })
+            }
+
+            // ИСПРАВЛЕНО: у ExpensesScreen нет параметра onBack
+            composable("expenses") {
+                ExpensesScreen()
+            }
             composable("cash") { CashScreen() }
+
             composable("couriers") {
                 CouriersScreen(onBack = { navController.popBackStack() })
             }
@@ -123,7 +144,6 @@ fun MainScreen(
                 )
             }
 
-            // --- МАРШРУТ ДЛЯ СКАНЕРА ---
             composable(
                 route = "ocr/{mode}",
                 arguments = listOf(navArgument("mode") { type = NavType.StringType })
@@ -135,12 +155,10 @@ fun MainScreen(
                     mode = mode,
                     onBack = { navController.popBackStack() },
                     onSave = { drafts: List<InvoiceRowDraft>, updateDb: Boolean ->
-
                         if (!updateDb) {
                             navController.popBackStack()
                             return@OcrInvoiceScreen
                         }
-
                         scope.launch(Dispatchers.IO) {
                             val db = AppDatabase.get(context)
                             val dao = db.ingredientDao()
@@ -150,42 +168,26 @@ fun MainScreen(
 
                             for (draft in drafts) {
                                 if (draft.name.isBlank()) continue
-
                                 val existingIng = existingMap[draft.name.lowercase()]
 
                                 if (mode == OcrMode.INVOICE) {
                                     val parsedPrice = draft.price.replace(',', '.').toDoubleOrNull() ?: 0.0
                                     val parsedUnit = draft.unit.ifBlank { "г" }
-
                                     if (existingIng != null) {
                                         if (parsedPrice > 0) {
                                             dao.update(existingIng.copy(pricePerKg = parsedPrice, unit = parsedUnit))
-                                            priceDao.insert(IngredientPrice(
-                                                ingredientId = existingIng.id,
-                                                price = parsedPrice
-                                            ))
+                                            priceDao.insert(IngredientPrice(ingredientId = existingIng.id, price = parsedPrice))
                                         }
                                     } else {
-                                        val newIng = Ingredient(
-                                            name = draft.name,
-                                            pricePerKg = parsedPrice,
-                                            unit = parsedUnit,
-                                            category = "Прочее"
-                                        )
+                                        val newIng = Ingredient(name = draft.name, pricePerKg = parsedPrice, unit = parsedUnit, category = "Прочее")
                                         val newId = dao.insert(newIng)
-                                        if (parsedPrice > 0) {
-                                            priceDao.insert(IngredientPrice(
-                                                ingredientId = newId,
-                                                price = parsedPrice
-                                            ))
-                                        }
+                                        if (parsedPrice > 0) priceDao.insert(IngredientPrice(ingredientId = newId, price = parsedPrice))
                                     }
                                 } else {
                                     val cal = draft.calories.replace(',', '.').toDoubleOrNull() ?: 0.0
                                     val prot = draft.protein.replace(',', '.').toDoubleOrNull() ?: 0.0
                                     val fat = draft.fat.replace(',', '.').toDoubleOrNull() ?: 0.0
                                     val carb = draft.carbs.replace(',', '.').toDoubleOrNull() ?: 0.0
-
                                     if (existingIng != null) {
                                         if (cal > 0 || prot > 0 || fat > 0 || carb > 0) {
                                             dao.update(existingIng.copy(
@@ -196,23 +198,11 @@ fun MainScreen(
                                             ))
                                         }
                                     } else {
-                                        val newIng = Ingredient(
-                                            name = draft.name,
-                                            pricePerKg = 0.0,
-                                            unit = "г",
-                                            category = "Прочее",
-                                            calories = cal,
-                                            protein = prot,
-                                            fat = fat,
-                                            carbs = carb
-                                        )
-                                        dao.insert(newIng)
+                                        dao.insert(Ingredient(name = draft.name, pricePerKg = 0.0, unit = "г", category = "Прочее", calories = cal, protein = prot, fat = fat, carbs = carb))
                                     }
                                 }
                             }
-                            withContext(Dispatchers.Main) {
-                                navController.popBackStack()
-                            }
+                            withContext(Dispatchers.Main) { navController.popBackStack() }
                         }
                     }
                 )
@@ -221,10 +211,6 @@ fun MainScreen(
     }
 
     if (pendingRenewal != null) {
-        RenewalDialog(
-            clientId = pendingRenewal.first,
-            orderId = pendingRenewal.second,
-            onDismiss = onConsumePendingRenewal
-        )
+        RenewalDialog(clientId = pendingRenewal.first, orderId = pendingRenewal.second, onDismiss = onConsumePendingRenewal)
     }
 }

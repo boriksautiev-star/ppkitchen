@@ -1,8 +1,5 @@
 package com.ppkitchen.ui
 
-import android.widget.Toast
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
@@ -11,13 +8,10 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.Folder
-import androidx.compose.material.icons.filled.ShoppingBasket
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -32,8 +26,8 @@ import com.ppkitchen.ocr.OcrMode
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.text.SimpleDateFormat
 import java.util.*
+import kotlin.math.roundToInt
 
 fun calculateDishCost(
     dishId: Long,
@@ -61,9 +55,39 @@ fun calculateDishCost(
     return cost
 }
 
+// НОВАЯ ФУНКЦИЯ ДЛЯ РАСЧЕТА БЖУ НА ЛЕТУ
+data class BjuResult(val calories: Int, val protein: Int, val fat: Int, val carbs: Int)
+
+fun calculateDishBju(
+    dishId: Long,
+    dishIngredients: List<DishIngredient>,
+    ingredients: List<Ingredient>
+): BjuResult {
+    var kcal = 0.0; var prot = 0.0; var fat = 0.0; var carb = 0.0
+    for (di in dishIngredients) {
+        if (di.dishId == dishId) {
+            val ing = ingredients.find { it.id == di.ingredientId }
+            if (ing != null) {
+                val grams = if (ing.unit == "шт") {
+                    di.amount * (if (ing.weightPerPiece > 0) ing.weightPerPiece else 100.0)
+                } else {
+                    di.amount
+                }
+                val factor = grams / 100.0
+                kcal += ing.calories * factor
+                prot += ing.protein * factor
+                fat += ing.fat * factor
+                carb += ing.carbs * factor
+            }
+        }
+    }
+    return BjuResult(kcal.roundToInt(), prot.roundToInt(), fat.roundToInt(), carb.roundToInt())
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DishesScreen(
+    onBack: () -> Unit,
     onNavigateToOcr: (OcrMode) -> Unit
 ) {
     val ctx = LocalContext.current
@@ -87,396 +111,130 @@ fun DishesScreen(
         }
     }
 
-    var selectedTab by remember { mutableIntStateOf(0) }
-    var showIngredientDialog by remember { mutableStateOf(false) }
     var showCreateDish by remember { mutableStateOf(false) }
-    var showCategoryManager by remember { mutableStateOf(false) }
     var viewingDish by remember { mutableStateOf<Dish?>(null) }
     var editingDish by remember { mutableStateOf<Dish?>(null) }
     var dishToDelete by remember { mutableStateOf<Dish?>(null) }
     var selectedCategory by remember { mutableStateOf("Все") }
     var sortMode by remember { mutableStateOf("name") }
     var showSortMenu by remember { mutableStateOf(false) }
-    var showExcelMenu by remember { mutableStateOf(false) }
-
-    var showFullImportProgress by remember { mutableStateOf(false) }
-    var fullImportProgressText by remember { mutableStateOf("") }
-
-    // --- СКАЧИВАНИЕ ШАБЛОНА БЛЮД ---
-    val downloadTemplateLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.CreateDocument("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-    ) { uri ->
-        if (uri != null) {
-            scope.launch {
-                try {
-                    withContext(Dispatchers.IO) {
-                        ctx.contentResolver.openOutputStream(uri)?.use { out ->
-                            ExcelHelper.createDishTemplate(out)
-                        }
-                    }
-                    withContext(Dispatchers.Main) {
-                        Toast.makeText(ctx, "Шаблон Excel сохранен", Toast.LENGTH_LONG).show()
-                    }
-                } catch (e: Throwable) {
-                    withContext(Dispatchers.Main) {
-                        Toast.makeText(ctx, "Ошибка: ${e.message}", Toast.LENGTH_LONG).show()
-                    }
-                }
-            }
-        }
-    }
-
-    // --- ЭКСПОРТ БЛЮД ---
-    val exportExcelLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.CreateDocument("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-    ) { uri ->
-        if (uri != null) {
-            scope.launch {
-                try {
-                    withContext(Dispatchers.IO) {
-                        ctx.contentResolver.openOutputStream(uri)?.use { out ->
-                            ExcelHelper.exportDishes(out, dishes, dishIngredients, ingredients)
-                        }
-                    }
-                    withContext(Dispatchers.Main) {
-                        Toast.makeText(ctx, "База блюд экспортирована", Toast.LENGTH_SHORT).show()
-                    }
-                } catch (e: Throwable) {
-                    withContext(Dispatchers.Main) {
-                        Toast.makeText(ctx, "Ошибка экспорта: ${e.message}", Toast.LENGTH_LONG).show()
-                    }
-                }
-            }
-        }
-    }
-
-    // --- ИМПОРТ БЛЮД ---
-    val importExcelLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.OpenDocument()
-    ) { uri ->
-        if (uri != null) {
-            scope.launch {
-                try {
-                    val (added, updated) = withContext(Dispatchers.IO) {
-                        ctx.contentResolver.openInputStream(uri)?.use { input ->
-                            ExcelHelper.importDishes(input, db)
-                        } ?: Pair(0, 0)
-                    }
-
-                    withContext(Dispatchers.Main) {
-                        Toast.makeText(ctx, "Импортировано: добавлено $added, обновлено $updated", Toast.LENGTH_LONG).show()
-                    }
-                } catch (e: Throwable) {
-                    withContext(Dispatchers.Main) {
-                        Toast.makeText(ctx, "Ошибка импорта: ${e.message}", Toast.LENGTH_LONG).show()
-                    }
-                }
-            }
-        }
-    }
-
-    // --- ПОЛНЫЙ ЭКСПОРТ БАЗЫ ---
-    val exportFullLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.CreateDocument("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-    ) { uri ->
-        if (uri != null) {
-            scope.launch {
-                try {
-                    withContext(Dispatchers.IO) {
-                        ctx.contentResolver.openOutputStream(uri)?.use { out ->
-                            ExcelHelper.exportFullBackup(out, db)
-                        }
-                    }
-                    withContext(Dispatchers.Main) {
-                        Toast.makeText(ctx, "Полный бэкап сохранен", Toast.LENGTH_LONG).show()
-                    }
-                } catch (e: Throwable) {
-                    withContext(Dispatchers.Main) {
-                        Toast.makeText(ctx, "Ошибка: ${e.message}", Toast.LENGTH_LONG).show()
-                    }
-                }
-            }
-        }
-    }
-
-    // --- ПОЛНЫЙ ИМПОРТ БАЗЫ ---
-    val importFullLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.OpenDocument()
-    ) { uri ->
-        if (uri != null) {
-            scope.launch {
-                showFullImportProgress = true
-                try {
-                    withContext(Dispatchers.IO) {
-                        ctx.contentResolver.openInputStream(uri)?.use { input ->
-                            ExcelHelper.importFullBackup(input, db) { msg ->
-                                fullImportProgressText = msg
-                            }
-                        }
-                    }
-                    withContext(Dispatchers.Main) {
-                        showFullImportProgress = false
-                        Toast.makeText(ctx, "Полный импорт завершен!", Toast.LENGTH_LONG).show()
-                    }
-                } catch (e: Throwable) {
-                    withContext(Dispatchers.Main) {
-                        showFullImportProgress = false
-                        Toast.makeText(ctx, "Ошибка: ${e.message}", Toast.LENGTH_LONG).show()
-                    }
-                }
-            }
-        }
-    }
 
     val filtered = dishes.filter { selectedCategory == "Все" || it.category == selectedCategory }
+
+    // Сортируем, используя динамический расчет БЖУ
     val filteredAndSorted = when (sortMode) {
-        "calories_asc" -> filtered.sortedBy { it.calories }
-        "calories_desc" -> filtered.sortedByDescending { it.calories }
+        "calories_asc" -> filtered.sortedBy { calculateDishBju(it.id, dishIngredients, ingredients).calories }
+        "calories_desc" -> filtered.sortedByDescending { calculateDishBju(it.id, dishIngredients, ingredients).calories }
         "cost_asc" -> filtered.sortedBy { calculateDishCost(it.id, dishIngredients, ingredients, avgPrices) }
         "cost_desc" -> filtered.sortedByDescending { calculateDishCost(it.id, dishIngredients, ingredients, avgPrices) }
         else -> filtered.sortedBy { it.name.lowercase() }
     }
 
-    if (showFullImportProgress) {
-        Dialog(onDismissRequest = {}) {
-            Card {
-                Column(Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                    CircularProgressIndicator()
-                    Spacer(Modifier.height(16.dp))
-                    Text(fullImportProgressText, style = MaterialTheme.typography.bodyLarge)
-                }
-            }
-        }
-    }
-
     Scaffold(
-        contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
             CompactTopBar(
-                title = when(selectedTab) {
-                    0 -> "База блюд"
-                    1 -> "Шаблоны меню"
-                    else -> "Рационы (Тарифы)"
-                },
+                title = "База блюд",
+                onBack = onBack,
                 actions = {
-                    if (selectedTab == 0) {
-                        IconButton(onClick = { showCategoryManager = true }) {
-                            Icon(Icons.Default.Folder, "Группы блюд")
+                    Box {
+                        IconButton(onClick = { showSortMenu = true }) {
+                            Icon(Icons.AutoMirrored.Filled.Sort, "Сортировка")
                         }
-                        IconButton(onClick = { showIngredientDialog = true }) {
-                            Icon(Icons.Default.ShoppingBasket, "Ингредиенты")
-                        }
-                        Box {
-                            IconButton(onClick = { showExcelMenu = true }) {
-                                Icon(Icons.AutoMirrored.Filled.List, "Excel")
-                            }
-                            DropdownMenu(
-                                expanded = showExcelMenu,
-                                onDismissRequest = { showExcelMenu = false }
-                            ) {
-                                DropdownMenuItem(
-                                    text = { Text("Скачать шаблон блюд") },
-                                    onClick = { showExcelMenu = false; downloadTemplateLauncher.launch("Шаблон_блюд.xlsx") }
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("Импорт блюд (Excel)") },
-                                    onClick = { showExcelMenu = false; importExcelLauncher.launch(arrayOf("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "application/vnd.ms-excel")) }
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("Экспорт блюд (Excel)") },
-                                    onClick = {
-                                        showExcelMenu = false
-                                        val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
-                                        exportExcelLauncher.launch("dishes_${sdf.format(Date())}.xlsx")
-                                    }
-                                )
-                                HorizontalDivider()
-                                DropdownMenuItem(
-                                    text = { Text("💾 Полный бэкап (Excel)") },
-                                    onClick = {
-                                        showExcelMenu = false
-                                        val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
-                                        exportFullLauncher.launch("Full_Backup_${sdf.format(Date())}.xlsx")
-                                    }
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("📥 Импорт полного бэкапа") },
-                                    onClick = { showExcelMenu = false; importFullLauncher.launch(arrayOf("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "application/vnd.ms-excel")) }
-                                )
-                            }
-                        }
-                        Box {
-                            IconButton(onClick = { showSortMenu = true }) {
-                                Icon(Icons.AutoMirrored.Filled.Sort, "Сортировка")
-                            }
-                            DropdownMenu(
-                                expanded = showSortMenu,
-                                onDismissRequest = { showSortMenu = false }
-                            ) {
-                                DropdownMenuItem(text = { Text("По названию (А-Я)") }, onClick = { sortMode = "name"; showSortMenu = false })
-                                DropdownMenuItem(text = { Text("По калориям (возрастание)") }, onClick = { sortMode = "calories_asc"; showSortMenu = false })
-                                DropdownMenuItem(text = { Text("По калориям (убывание)") }, onClick = { sortMode = "calories_desc"; showSortMenu = false })
-                                DropdownMenuItem(text = { Text("По себестоимости (дешевле)") }, onClick = { sortMode = "cost_asc"; showSortMenu = false })
-                                DropdownMenuItem(text = { Text("По себестоимости (дороже)") }, onClick = { sortMode = "cost_desc"; showSortMenu = false })
-                            }
+                        DropdownMenu(expanded = showSortMenu, onDismissRequest = { showSortMenu = false }) {
+                            DropdownMenuItem(text = { Text("По названию (А-Я)") }, onClick = { sortMode = "name"; showSortMenu = false })
+                            DropdownMenuItem(text = { Text("По калориям (↑)") }, onClick = { sortMode = "calories_asc"; showSortMenu = false })
+                            DropdownMenuItem(text = { Text("По калориям (↓)") }, onClick = { sortMode = "calories_desc"; showSortMenu = false })
+                            DropdownMenuItem(text = { Text("По цене (↑)") }, onClick = { sortMode = "cost_asc"; showSortMenu = false })
+                            DropdownMenuItem(text = { Text("По цене (↓)") }, onClick = { sortMode = "cost_desc"; showSortMenu = false })
                         }
                     }
                 }
             )
         },
         floatingActionButton = {
-            if (selectedTab == 0) {
-                FloatingActionButton(onClick = { showCreateDish = true }) {
-                    Icon(Icons.Default.Add, "Добавить блюдо")
-                }
+            FloatingActionButton(onClick = { showCreateDish = true }) {
+                Icon(Icons.Default.Add, "Добавить блюдо")
             }
         }
     ) { pad ->
         Column(Modifier.padding(pad).fillMaxSize()) {
-            TabRow(selectedTabIndex = selectedTab) {
-                Tab(selected = selectedTab == 0, onClick = { selectedTab = 0 }, text = { Text("Блюда") })
-                Tab(selected = selectedTab == 1, onClick = { selectedTab = 1 }, text = { Text("Меню") })
-                Tab(selected = selectedTab == 2, onClick = { selectedTab = 2 }, text = { Text("Рационы") })
+            Row(
+                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                FilterChip(selected = selectedCategory == "Все", onClick = { selectedCategory = "Все" }, label = { Text("Все") })
+                dishCategories.forEach { cat ->
+                    FilterChip(selected = selectedCategory == cat.name, onClick = { selectedCategory = cat.name }, label = { Text(cat.name) })
+                }
             }
 
-            if (selectedTab == 0) {
-                Column(Modifier.fillMaxSize()) {
-                    Row(
-                        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 8.dp),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        FilterChip(selected = selectedCategory == "Все", onClick = { selectedCategory = "Все" }, label = { Text("Все") })
-                        dishCategories.forEach { cat ->
-                            FilterChip(selected = selectedCategory == cat.name, onClick = { selectedCategory = cat.name }, label = { Text(cat.name) })
-                        }
-                    }
+            if (filteredAndSorted.isEmpty()) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text("В этой категории блюд нет.", style = MaterialTheme.typography.bodyLarge)
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    items(filteredAndSorted, key = { it.id }) { dish ->
+                        val cost = calculateDishCost(dish.id, dishIngredients, ingredients, avgPrices)
+                        val bju = calculateDishBju(dish.id, dishIngredients, ingredients)
 
-                    if (filteredAndSorted.isEmpty()) {
-                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            Text("В этой категории блюд нет.", style = MaterialTheme.typography.bodyLarge)
-                        }
-                    } else {
-                        LazyColumn(
-                            modifier = Modifier.fillMaxSize(),
-                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            items(filteredAndSorted, key = { it.id }) { dish ->
-                                val cost = calculateDishCost(dish.id, dishIngredients, ingredients, avgPrices)
-
-                                Card(
-                                    Modifier.fillMaxWidth().clickable { viewingDish = dish }
-                                ) {
-                                    Row(
-                                        Modifier.padding(16.dp),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Column(Modifier.weight(1f)) {
-                                            Text(dish.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                                            Text(
-                                                "${dish.calories} ккал · Б${dish.protein} Ж${dish.fat} У${dish.carbs}",
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                                            )
-                                        }
-                                        Text(
-                                            String.format(Locale.US, "%.0f ₽", cost),
-                                            style = MaterialTheme.typography.titleMedium,
-                                            color = MaterialTheme.colorScheme.primary,
-                                            fontWeight = FontWeight.Medium
-                                        )
-                                    }
+                        Card(Modifier.fillMaxWidth().clickable { viewingDish = dish }) {
+                            Row(
+                                Modifier.padding(16.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(Modifier.weight(1f)) {
+                                    Text(dish.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                                    Text(
+                                        "${bju.calories} ккал · Б${bju.protein} Ж${bju.fat} У${bju.carbs}",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
                                 }
+                                Text(
+                                    String.format(Locale.US, "%.0f ₽", cost),
+                                    style = MaterialTheme.typography.titleMedium,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    fontWeight = FontWeight.Medium
+                                )
                             }
                         }
                     }
                 }
-            } else if (selectedTab == 1) {
-                Box(Modifier.fillMaxSize()) { MenuTemplatesScreen() }
-            } else {
-                Box(Modifier.fillMaxSize()) { RationsScreen() }
             }
         }
     }
 
-    if (showIngredientDialog) {
-        IngredientManagerDialog(
-            ingredients = ingredients,
-            onDismiss = { showIngredientDialog = false },
-            onNavigateToOcr = {
-                showIngredientDialog = false
-                onNavigateToOcr(OcrMode.REFERENCE)
-            }
-        )
-    }
-
-    if (showCategoryManager) {
-        DishCategoryManagerDialog(onDismiss = { showCategoryManager = false })
-    }
-
     if (showCreateDish) {
-        DishEditScreen(
-            dish = null,
-            ingredients = ingredients,
-            existingDishIngredients = emptyList(),
-            onSave = { _, _ -> },
-            onDismiss = { showCreateDish = false }
-        )
+        DishEditScreen(dish = null, ingredients = ingredients, existingDishIngredients = emptyList(), onSave = { _, _ -> }, onDismiss = { showCreateDish = false })
     }
-
     if (editingDish != null) {
-        DishEditScreen(
-            dish = editingDish,
-            ingredients = ingredients,
-            existingDishIngredients = dishIngredients.filter { it.dishId == editingDish!!.id },
-            onSave = { _, _ -> },
-            onDismiss = { editingDish = null }
-        )
+        DishEditScreen(dish = editingDish, ingredients = ingredients, existingDishIngredients = dishIngredients.filter { it.dishId == editingDish!!.id }, onSave = { _, _ -> }, onDismiss = { editingDish = null })
     }
-
     if (viewingDish != null) {
         DishDetailScreen(
-            dish = viewingDish!!,
-            ingredients = ingredients,
-            dishIngredients = dishIngredients,
-            avgPrices = avgPrices,
+            dish = viewingDish!!, ingredients = ingredients, dishIngredients = dishIngredients, avgPrices = avgPrices,
             cost = calculateDishCost(viewingDish!!.id, dishIngredients, ingredients, avgPrices),
-            onEdit = {
-                editingDish = viewingDish
-                viewingDish = null
-            },
-            onDelete = {
-                dishToDelete = viewingDish
-                viewingDish = null
-            },
+            bju = calculateDishBju(viewingDish!!.id, dishIngredients, ingredients), // Передаем БЖУ
+            onEdit = { editingDish = viewingDish; viewingDish = null },
+            onDelete = { dishToDelete = viewingDish; viewingDish = null },
             onDismiss = { viewingDish = null }
         )
     }
-
     if (dishToDelete != null) {
         AlertDialog(
             onDismissRequest = { dishToDelete = null },
             title = { Text("Удалить блюдо?") },
             text = { Text("Вы уверены, что хотите удалить «${dishToDelete!!.name}»?") },
             confirmButton = {
-                TextButton(
-                    onClick = {
-                        scope.launch {
-                            try {
-                                db.dishIngredientDao().deleteForDish(dishToDelete!!.id)
-                                db.dishDao().delete(dishToDelete!!)
-                                dishToDelete = null
-                            } catch (e: Throwable) {}
-                        }
-                    }
-                ) {
-                    Text("Удалить", color = MaterialTheme.colorScheme.error)
-                }
+                TextButton(onClick = { scope.launch { db.dishIngredientDao().deleteForDish(dishToDelete!!.id); db.dishDao().delete(dishToDelete!!); dishToDelete = null } }) { Text("Удалить", color = MaterialTheme.colorScheme.error) }
             },
-            dismissButton = {
-                TextButton(onClick = { dishToDelete = null }) { Text("Отмена") }
-            }
+            dismissButton = { TextButton(onClick = { dishToDelete = null }) { Text("Отмена") } }
         )
     }
 }
@@ -489,16 +247,13 @@ fun DishDetailScreen(
     dishIngredients: List<DishIngredient>,
     avgPrices: Map<Long, Double>,
     cost: Double,
+    bju: BjuResult, // Новый параметр
     onEdit: () -> Unit,
     onDelete: () -> Unit,
     onDismiss: () -> Unit
 ) {
     val dIngs = dishIngredients.filter { it.dishId == dish.id }
-
-    Dialog(
-        onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false)
-    ) {
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
             Column(Modifier.fillMaxSize()) {
                 CompactTopBar(
@@ -509,25 +264,21 @@ fun DishDetailScreen(
                         IconButton(onClick = onDelete) { Icon(Icons.Default.Delete, "Удалить", tint = MaterialTheme.colorScheme.error) }
                     }
                 )
-
-                Column(
-                    Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(16.dp)
-                ) {
+                Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                     Card(Modifier.fillMaxWidth()) {
                         Column(Modifier.padding(16.dp)) {
                             Text("Группа: ${dish.category}", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             Spacer(Modifier.height(8.dp))
                             Text("Пищевая ценность:", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-                            Text("Калории: ${dish.calories} ккал", style = MaterialTheme.typography.bodyMedium)
-                            Text("Белки: ${dish.protein} г", style = MaterialTheme.typography.bodyMedium)
-                            Text("Жиры: ${dish.fat} г", style = MaterialTheme.typography.bodyMedium)
-                            Text("Углеводы: ${dish.carbs} г", style = MaterialTheme.typography.bodyMedium)
+                            // Используем динамические значения
+                            Text("Калории: ${bju.calories} ккал", style = MaterialTheme.typography.bodyMedium)
+                            Text("Белки: ${bju.protein} г", style = MaterialTheme.typography.bodyMedium)
+                            Text("Жиры: ${bju.fat} г", style = MaterialTheme.typography.bodyMedium)
+                            Text("Углеводы: ${bju.carbs} г", style = MaterialTheme.typography.bodyMedium)
                             Spacer(Modifier.height(8.dp))
                             Text("Себестоимость: ${String.format(Locale.US, "%.2f", cost)} ₽", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
                         }
                     }
-
                     if (dIngs.isNotEmpty()) {
                         Text("Технологическая карта:", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                         Card(Modifier.fillMaxWidth()) {
@@ -570,87 +321,4 @@ fun DishDetailScreen(
             }
         }
     }
-}
-
-@Composable
-fun DishCategoryManagerDialog(onDismiss: () -> Unit) {
-    val ctx = LocalContext.current
-    val db = remember { AppDatabase.get(ctx) }
-    val scope = rememberCoroutineScope()
-
-    val categories by db.dishCategoryDao().getAll().collectAsState(initial = emptyList())
-    var showAdd by remember { mutableStateOf(false) }
-    var editingCat by remember { mutableStateOf<DishCategory?>(null) }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Группы блюд") },
-        text = {
-            Column(Modifier.fillMaxWidth()) {
-                LazyColumn(Modifier.heightIn(max = 400.dp)) {
-                    items(categories, key = { it.id }) { cat ->
-                        Row(
-                            Modifier.fillMaxWidth().clickable { editingCat = cat }.padding(vertical = 8.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(cat.name, style = MaterialTheme.typography.bodyMedium)
-                            IconButton(onClick = {
-                                scope.launch {
-                                    db.dishCategoryDao().renameCategoryInDishes(cat.name, "Прочее")
-                                    db.dishCategoryDao().delete(cat)
-                                }
-                            }) {
-                                Icon(Icons.Default.Delete, "Удалить", tint = MaterialTheme.colorScheme.error)
-                            }
-                        }
-                        HorizontalDivider()
-                    }
-                }
-            }
-        },
-        confirmButton = {
-            Button(onClick = { showAdd = true }) {
-                Icon(Icons.Default.Add, null); Spacer(Modifier.width(4.dp)); Text("Добавить")
-            }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Закрыть") } }
-    )
-
-    if (showAdd) {
-        EditDishCategoryDialog(category = null, onSave = { newCat ->
-            scope.launch { db.dishCategoryDao().insert(newCat) }
-            showAdd = false
-        }, onDismiss = { showAdd = false })
-    }
-
-    if (editingCat != null) {
-        EditDishCategoryDialog(category = editingCat, onSave = { updatedCat ->
-            scope.launch {
-                db.dishCategoryDao().renameCategoryInDishes(editingCat!!.name, updatedCat.name)
-                db.dishCategoryDao().update(updatedCat)
-            }
-            editingCat = null
-        }, onDismiss = { editingCat = null })
-    }
-}
-
-@Composable
-fun EditDishCategoryDialog(
-    category: DishCategory?,
-    onSave: (DishCategory) -> Unit,
-    onDismiss: () -> Unit
-) {
-    var name by remember { mutableStateOf(category?.name ?: "") }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(if (category == null) "Новая группа" else "Переименовать группу") },
-        text = { OutlinedTextField(name, { name = it }, label = { Text("Название") }, singleLine = true) },
-        confirmButton = {
-            TextButton(onClick = {
-                if (name.isNotBlank()) onSave(DishCategory(id = category?.id ?: 0, name = name.trim()))
-            }) { Text("Сохранить") }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Отмена") } }
-    )
 }

@@ -9,6 +9,15 @@ import java.io.InputStream
 import java.io.OutputStream
 import kotlin.math.roundToInt
 
+data class ImportResult(
+    val ingredientsAdded: Int = 0,
+    val ingredientsUpdated: Int = 0,
+    val dishesAdded: Int = 0,
+    val dishesUpdated: Int = 0,
+    val templatesAdded: Int = 0,
+    val templatesUpdated: Int = 0
+)
+
 object ExcelHelper {
     private val excelFormatter = DataFormatter()
 
@@ -20,6 +29,22 @@ object ExcelHelper {
     private fun getCellDouble(cell: Cell?): Double {
         if (cell == null) return 0.0
         return excelFormatter.formatCellValue(cell).replace(',', '.').toDoubleOrNull() ?: 0.0
+    }
+
+    private suspend fun ensureIngredientCategory(db: AppDatabase, name: String) {
+        if (name.isBlank()) return
+        val current = db.ingredientCategoryDao().getAll().first()
+        if (current.none { it.name.equals(name, true) }) {
+            db.ingredientCategoryDao().insert(IngredientCategory(name = name))
+        }
+    }
+
+    private suspend fun ensureDishCategory(db: AppDatabase, name: String) {
+        if (name.isBlank()) return
+        val current = db.dishCategoryDao().getAll().first()
+        if (current.none { it.name.equals(name, true) }) {
+            db.dishCategoryDao().insert(DishCategory(name = name))
+        }
     }
 
     // ==========================================
@@ -40,7 +65,6 @@ object ExcelHelper {
 
         val wb = Workbook(out, "PP Kitchen Full Backup", "1.0")
 
-        // 1. Ингредиенты
         val ws1 = wb.newWorksheet("1_Ингредиенты")
         ws1.value(0, 0, "Название"); ws1.value(0, 1, "Цена")
         ws1.value(0, 2, "Категория"); ws1.value(0, 3, "Ед.изм")
@@ -60,14 +84,12 @@ object ExcelHelper {
             ws1.value(r, 12, ing.lossStewing); ws1.value(r, 13, ing.weightPerPiece)
         }
 
-        // 2. Блюда
         val ws2 = wb.newWorksheet("2_Блюда")
         ws2.value(0, 0, "Название"); ws2.value(0, 1, "Категория")
         dishes.forEachIndexed { i, d ->
             ws2.value(i + 1, 0, d.name); ws2.value(i + 1, 1, d.category)
         }
 
-        // 3. Состав блюд
         val ws3 = wb.newWorksheet("3_Состав_Блюд")
         ws3.value(0, 0, "Название блюда"); ws3.value(0, 1, "Ингредиент")
         ws3.value(0, 2, "Выход (г)"); ws3.value(0, 3, "Способ обработки")
@@ -84,14 +106,12 @@ object ExcelHelper {
             }
         }
 
-        // 4. Шаблоны меню
         val ws4 = wb.newWorksheet("4_Шаблоны_Меню")
         ws4.value(0, 0, "Название"); ws4.value(0, 1, "Длина цикла"); ws4.value(0, 2, "Дата старта")
         templates.forEachIndexed { i, t ->
             ws4.value(i + 1, 0, t.name); ws4.value(i + 1, 1, t.cycleLength); ws4.value(i + 1, 2, t.startDate)
         }
 
-        // 5. Дни меню (связи)
         val ws5 = wb.newWorksheet("5_Дни_Меню")
         ws5.value(0, 0, "Шаблон меню"); ws5.value(0, 1, "День (число)"); ws5.value(0, 2, "Название блюда")
         var r5 = 1
@@ -110,7 +130,11 @@ object ExcelHelper {
         wb.finish()
     }
 
-    suspend fun importFullBackup(input: InputStream, db: AppDatabase, onProgress: (String) -> Unit) {
+    suspend fun importFullBackup(input: InputStream, db: AppDatabase, onProgress: (String) -> Unit): ImportResult {
+        var ingAdded = 0; var ingUpdated = 0
+        var dishAdded = 0; var dishUpdated = 0
+        var tempAdded = 0; var tempUpdated = 0
+
         val workbook = WorkbookFactory.create(input)
         try {
             // 1. Ингредиенты
@@ -118,15 +142,20 @@ object ExcelHelper {
             if (workbook.numberOfSheets > 0) {
                 val sheet = workbook.getSheetAt(0)
                 val current = db.ingredientDao().getAllOnce()
+                val processedNames = mutableSetOf<String>()
+
                 for (r in 1..sheet.lastRowNum) {
                     val row = sheet.getRow(r) ?: continue
                     try {
                         val name = getCellString(row.getCell(0))
-                        if (name.isNotBlank()) {
+                        val category = getCellString(row.getCell(2)).ifBlank { "Прочее" }
+                        if (name.isNotBlank() && processedNames.add(name.lowercase())) {
+                            ensureIngredientCategory(db, category)
+
                             val ing = Ingredient(
                                 id = current.find { it.name.equals(name, true) }?.id ?: 0,
                                 name = name, pricePerKg = getCellDouble(row.getCell(1)),
-                                category = getCellString(row.getCell(2)).ifBlank { "Прочее" },
+                                category = category,
                                 unit = getCellString(row.getCell(3)).ifBlank { "г" },
                                 calories = getCellDouble(row.getCell(4)), protein = getCellDouble(row.getCell(5)),
                                 fat = getCellDouble(row.getCell(6)), carbs = getCellDouble(row.getCell(7)),
@@ -134,9 +163,14 @@ object ExcelHelper {
                                 lossFrying = getCellDouble(row.getCell(10)), lossBaking = getCellDouble(row.getCell(11)),
                                 lossStewing = getCellDouble(row.getCell(12)), weightPerPiece = getCellDouble(row.getCell(13))
                             )
-                            if (ing.id > 0L) db.ingredientDao().update(ing) else db.ingredientDao().insert(ing)
+                            if (ing.id > 0L) {
+                                db.ingredientDao().update(ing)
+                                ingUpdated++
+                            } else {
+                                db.ingredientDao().insert(ing)
+                                ingAdded++
+                            }
 
-                            // Обновляем справочник для автозаполнения
                             val ref = db.foodReferenceDao().findByName(name)
                             db.foodReferenceDao().insert(FoodReference(
                                 id = ref?.id ?: 0, name = name, calories = ing.calories, protein = ing.protein,
@@ -152,16 +186,27 @@ object ExcelHelper {
             if (workbook.numberOfSheets > 1) {
                 val sheet = workbook.getSheetAt(1)
                 val current = db.dishDao().getAll().first()
+                val processedDishes = mutableSetOf<String>()
+
                 for (r in 1..sheet.lastRowNum) {
                     val row = sheet.getRow(r) ?: continue
                     try {
                         val name = getCellString(row.getCell(0))
-                        if (name.isNotBlank()) {
+                        val category = getCellString(row.getCell(1)).ifBlank { "Прочее" }
+                        if (name.isNotBlank() && processedDishes.add(name.lowercase())) {
+                            ensureDishCategory(db, category)
+
                             val dish = Dish(
                                 id = current.find { it.name.equals(name, true) }?.id ?: 0,
-                                name = name, category = getCellString(row.getCell(1)).ifBlank { "Прочее" }
+                                name = name, category = category
                             )
-                            if (dish.id > 0L) db.dishDao().update(dish) else db.dishDao().insert(dish)
+                            if (dish.id > 0L) {
+                                db.dishDao().update(dish)
+                                dishUpdated++
+                            } else {
+                                db.dishDao().insert(dish)
+                                dishAdded++
+                            }
                         }
                     } catch (_: Exception) {}
                 }
@@ -174,7 +219,6 @@ object ExcelHelper {
                 val allDishes = db.dishDao().getAll().first()
                 val allIngs = db.ingredientDao().getAllOnce()
 
-                // Очищаем старый состав для импортируемых блюд
                 for (r in 1..sheet.lastRowNum) {
                     val row = sheet.getRow(r) ?: continue
                     val dishName = getCellString(row.getCell(0))
@@ -182,6 +226,7 @@ object ExcelHelper {
                     if (dish != null) db.dishIngredientDao().deleteForDish(dish.id)
                 }
 
+                val processedDishIngs = mutableSetOf<String>()
                 for (r in 1..sheet.lastRowNum) {
                     val row = sheet.getRow(r) ?: continue
                     try {
@@ -194,11 +239,41 @@ object ExcelHelper {
                         val ing = allIngs.find { it.name.equals(ingName, true) }
 
                         if (dish != null && ing != null && output > 0) {
-                            val loss = ing.getLossForMethod(method)
-                            val netWeight = if (loss > 0) output / ((100.0 - loss) / 100.0) else output
-                            db.dishIngredientDao().insert(DishIngredient(dish.id, ing.id, netWeight, method))
+                            val key = "${dish.id}_${ing.id}"
+                            if (processedDishIngs.add(key)) {
+                                val loss = ing.getLossForMethod(method)
+                                val netWeight = if (loss > 0) output / ((100.0 - loss) / 100.0) else output
+                                db.dishIngredientDao().insert(DishIngredient(dish.id, ing.id, netWeight, method))
+                            }
                         }
                     } catch (_: Exception) {}
+                }
+
+                // Пересчет БЖУ
+                onProgress("Шаг 3.5/5: Пересчет БЖУ блюд...")
+                val updatedDishes = db.dishDao().getAll().first()
+                val updatedDishIngredients = db.dishIngredientDao().getAll().first()
+                val updatedIngredients = db.ingredientDao().getAllOnce()
+
+                for (dish in updatedDishes) {
+                    val ings = updatedDishIngredients.filter { it.dishId == dish.id }
+                    var kcal = 0.0; var prot = 0.0; var fat = 0.0; var carb = 0.0
+
+                    for (di in ings) {
+                        val ing = updatedIngredients.find { it.id == di.ingredientId } ?: continue
+                        val grams = if (ing.unit == "шт") {
+                            di.amount * (if (ing.weightPerPiece > 0) ing.weightPerPiece else 100.0)
+                        } else {
+                            di.amount
+                        }
+                        val factor = grams / 100.0
+                        kcal += ing.calories * factor; prot += ing.protein * factor; fat += ing.fat * factor; carb += ing.carbs * factor
+                    }
+
+                    db.dishDao().update(dish.copy(
+                        calories = kcal.roundToInt(), protein = prot.roundToInt(),
+                        fat = fat.roundToInt(), carbs = carb.roundToInt()
+                    ))
                 }
             }
 
@@ -207,17 +282,36 @@ object ExcelHelper {
             if (workbook.numberOfSheets > 3) {
                 val sheet = workbook.getSheetAt(3)
                 val current = db.menuTemplateDao().getAll().first()
+                val processedTemplates = mutableSetOf<String>()
+
                 for (r in 1..sheet.lastRowNum) {
                     val row = sheet.getRow(r) ?: continue
                     try {
                         val name = getCellString(row.getCell(0))
-                        if (name.isNotBlank()) {
+                        val cycleLength = getCellDouble(row.getCell(1)).toInt()
+                        if (name.isNotBlank() && processedTemplates.add(name.lowercase())) {
                             val template = MenuTemplate(
                                 id = current.find { it.name.equals(name, true) }?.id ?: 0,
-                                name = name, cycleLength = getCellDouble(row.getCell(1)).toInt(),
+                                name = name, cycleLength = cycleLength,
                                 startDate = getCellString(row.getCell(2)).ifBlank { "2026-01-01" }
                             )
-                            if (template.id > 0L) db.menuTemplateDao().update(template) else db.menuTemplateDao().insert(template)
+                            val templateId = if (template.id > 0L) {
+                                db.menuTemplateDao().update(template)
+                                tempUpdated++
+                                template.id
+                            } else {
+                                tempAdded++
+                                db.menuTemplateDao().insert(template)
+                            }
+
+                            val currentDays = db.menuDayDao().getDaysForTemplate(templateId).first()
+                            if (cycleLength > 0) {
+                                for (i in 1..cycleLength) {
+                                    if (currentDays.none { it.dayNumber == i }) {
+                                        db.menuDayDao().insert(MenuDay(templateId = templateId, dayNumber = i))
+                                    }
+                                }
+                            }
                         }
                     } catch (_: Exception) {}
                 }
@@ -235,7 +329,6 @@ object ExcelHelper {
                     allDays.addAll(db.menuDayDao().getDaysForTemplate(t.id).first())
                 }
 
-                // Очищаем старые дни у шаблонов, которые есть в файле
                 for (r in 1..sheet.lastRowNum) {
                     val row = sheet.getRow(r) ?: continue
                     val tName = getCellString(row.getCell(0))
@@ -248,6 +341,7 @@ object ExcelHelper {
                     }
                 }
 
+                val processedMenuDays = mutableSetOf<String>()
                 for (r in 1..sheet.lastRowNum) {
                     val row = sheet.getRow(r) ?: continue
                     try {
@@ -261,7 +355,10 @@ object ExcelHelper {
                         if (template != null && dish != null && dayNum > 0) {
                             val day = allDays.find { it.templateId == template.id && it.dayNumber == dayNum }
                             if (day != null) {
-                                db.menuDayDishDao().insert(MenuDayDish(day.id, dish.id))
+                                val key = "${day.id}_${dish.id}"
+                                if (processedMenuDays.add(key)) {
+                                    db.menuDayDishDao().insert(MenuDayDish(day.id, dish.id))
+                                }
                             }
                         }
                     } catch (_: Exception) {}
@@ -270,6 +367,15 @@ object ExcelHelper {
         } finally {
             workbook.close()
         }
+
+        return ImportResult(
+            ingredientsAdded = ingAdded,
+            ingredientsUpdated = ingUpdated,
+            dishesAdded = dishAdded,
+            dishesUpdated = dishUpdated,
+            templatesAdded = tempAdded,
+            templatesUpdated = tempUpdated
+        )
     }
 
     // ==========================================
@@ -424,12 +530,14 @@ object ExcelHelper {
         val workbook = WorkbookFactory.create(input)
         try {
             val dishSheet = workbook.getSheetAt(0)
+            val processedDishes = mutableSetOf<String>()
             for (rowIndex in 1..dishSheet.lastRowNum) {
                 val row = dishSheet.getRow(rowIndex) ?: continue
                 try {
                     val name = getCellString(row.getCell(0))
-                    if (name.isNotBlank()) {
-                        val cat = getCellString(row.getCell(1)).ifBlank { "Прочее" }
+                    val cat = getCellString(row.getCell(1)).ifBlank { "Прочее" }
+                    if (name.isNotBlank() && processedDishes.add(name.lowercase())) {
+                        ensureDishCategory(db, cat)
                         val existing = currentDishes.find { it.name.equals(name, ignoreCase = true) }
                         val newDish = Dish(id = existing?.id ?: 0, name = name, category = cat, calories = 0, protein = 0, fat = 0, carbs = 0)
                         if (existing != null) toUpdateDishes.add(newDish) else toInsertDishes.add(newDish)
@@ -439,6 +547,7 @@ object ExcelHelper {
 
             if (workbook.numberOfSheets > 1) {
                 val ingSheet = workbook.getSheetAt(1)
+                val processedDishIngs = mutableSetOf<String>()
                 for (rowIndex in 1..ingSheet.lastRowNum) {
                     val row = ingSheet.getRow(rowIndex) ?: continue
                     try {
@@ -447,10 +556,14 @@ object ExcelHelper {
                         val outputWeight = getCellDouble(row.getCell(2))
                         val method = getCellString(row.getCell(3)).ifBlank { "Сырой" }
                         val ing = currentIngredients.find { it.name.equals(ingName, ignoreCase = true) }
+
                         if (dishName.isNotBlank() && ing != null && outputWeight > 0) {
-                            val loss = ing.getLossForMethod(method)
-                            val netWeight = if (loss > 0) outputWeight / ((100.0 - loss) / 100.0) else outputWeight
-                            parsedIngredients.add(dishName to DishIngredient(dishId = 0, ingredientId = ing.id, amount = netWeight, cookingMethod = method))
+                            val key = "${dishName.lowercase()}_${ing.id}"
+                            if (processedDishIngs.add(key)) {
+                                val loss = ing.getLossForMethod(method)
+                                val netWeight = if (loss > 0) outputWeight / ((100.0 - loss) / 100.0) else outputWeight
+                                parsedIngredients.add(dishName to DishIngredient(dishId = 0, ingredientId = ing.id, amount = netWeight, cookingMethod = method))
+                            }
                         }
                     } catch (_: Exception) { }
                 }
@@ -530,6 +643,7 @@ object ExcelHelper {
         val workbook = WorkbookFactory.create(input)
         try {
             val sheet = workbook.getSheetAt(0)
+            val processedMenuDays = mutableSetOf<String>()
             for (rowIndex in 1..sheet.lastRowNum) {
                 val row = sheet.getRow(rowIndex) ?: continue
                 try {
@@ -538,8 +652,11 @@ object ExcelHelper {
                     val menuDay = days.find { it.dayNumber == dayNum }
                     val dish = allDishes.find { it.name.equals(dishName, ignoreCase = true) }
                     if (menuDay != null && dish != null) {
-                        db.menuDayDishDao().insert(MenuDayDish(menuDayId = menuDay.id, dishId = dish.id))
-                        addedCount++
+                        val key = "${menuDay.id}_${dish.id}"
+                        if (processedMenuDays.add(key)) {
+                            db.menuDayDishDao().insert(MenuDayDish(menuDayId = menuDay.id, dishId = dish.id))
+                            addedCount++
+                        }
                     }
                 } catch (_: Exception) { }
             }

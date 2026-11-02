@@ -8,12 +8,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.DateRange
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.FileDownload
-import androidx.compose.material.icons.filled.FileUpload
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -27,11 +22,11 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
+import java.util.*
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MenuTemplatesScreen() {
+fun MenuTemplatesScreen(onBack: () -> Unit) {
     val ctx = LocalContext.current
     val db = remember { AppDatabase.get(ctx) }
     val scope = rememberCoroutineScope()
@@ -43,7 +38,6 @@ fun MenuTemplatesScreen() {
     var templateToDelete by remember { mutableStateOf<MenuTemplate?>(null) }
     var templateToEdit by remember { mutableStateOf<MenuTemplate?>(null) }
 
-    // --- 1. СКАЧИВАНИЕ ПУСТОГО ШАБЛОНА ---
     val downloadTemplateLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
     ) { uri ->
@@ -55,19 +49,12 @@ fun MenuTemplatesScreen() {
                             ExcelHelper.createMenuTemplate(out)
                         }
                     }
-                    withContext(Dispatchers.Main) {
-                        Toast.makeText(ctx, "Шаблон Excel сохранен", Toast.LENGTH_LONG).show()
-                    }
-                } catch (e: Exception) {
-                    withContext(Dispatchers.Main) {
-                        Toast.makeText(ctx, "Ошибка: ${e.message}", Toast.LENGTH_LONG).show()
-                    }
-                }
+                    withContext(Dispatchers.Main) { Toast.makeText(ctx, "Шаблон сохранен", Toast.LENGTH_SHORT).show() }
+                } catch (e: Exception) { withContext(Dispatchers.Main) { Toast.makeText(ctx, "Ошибка: ${e.message}", Toast.LENGTH_LONG).show() } }
             }
         }
     }
 
-    // --- 2. ЭКСПОРТ КОНКРЕТНОГО МЕНЮ ---
     var templateToExport by remember { mutableStateOf<MenuTemplate?>(null) }
     val exportMenuLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
@@ -81,14 +68,8 @@ fun MenuTemplatesScreen() {
                             ExcelHelper.exportMenu(out, currentTemplate, db)
                         }
                     }
-                    withContext(Dispatchers.Main) {
-                        Toast.makeText(ctx, "Меню экспортировано", Toast.LENGTH_SHORT).show()
-                    }
-                } catch (e: Exception) {
-                    withContext(Dispatchers.Main) {
-                        Toast.makeText(ctx, "Ошибка экспорта: ${e.message}", Toast.LENGTH_LONG).show()
-                    }
-                }
+                    withContext(Dispatchers.Main) { Toast.makeText(ctx, "Меню экспортировано", Toast.LENGTH_SHORT).show() }
+                } catch (e: Exception) { withContext(Dispatchers.Main) { Toast.makeText(ctx, "Ошибка: ${e.message}", Toast.LENGTH_LONG).show() } }
             }
         }
     }
@@ -96,12 +77,10 @@ fun MenuTemplatesScreen() {
     fun exportMenuToExcel(template: MenuTemplate) {
         val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
         val safeName = template.name.replace(Regex("[^a-zA-Z0-9а-яА-Я ]"), "").replace(" ", "_")
-        val fileName = "Меню_${safeName}_${sdf.format(Date())}.xlsx"
         templateToExport = template
-        exportMenuLauncher.launch(fileName)
+        exportMenuLauncher.launch("Меню_${safeName}_${sdf.format(Date())}.xlsx")
     }
 
-    // --- 3. ИМПОРТ В КОНКРЕТНОЕ МЕНЮ ---
     var templateToImport by remember { mutableStateOf<MenuTemplate?>(null) }
     val importMenuLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
@@ -115,14 +94,8 @@ fun MenuTemplatesScreen() {
                             ExcelHelper.importMenu(input, currentTemplate, db)
                         } ?: 0
                     }
-                    withContext(Dispatchers.Main) {
-                        Toast.makeText(ctx, "Импортировано блюд: $addedCount", Toast.LENGTH_LONG).show()
-                    }
-                } catch (e: Throwable) {
-                    withContext(Dispatchers.Main) {
-                        Toast.makeText(ctx, "Ошибка импорта: ${e.message}", Toast.LENGTH_LONG).show()
-                    }
-                }
+                    withContext(Dispatchers.Main) { Toast.makeText(ctx, "Импортировано блюд: $addedCount", Toast.LENGTH_LONG).show() }
+                } catch (e: Throwable) { withContext(Dispatchers.Main) { Toast.makeText(ctx, "Ошибка: ${e.message}", Toast.LENGTH_LONG).show() } }
             }
         }
     }
@@ -132,8 +105,10 @@ fun MenuTemplatesScreen() {
         importMenuLauncher.launch(arrayOf("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "application/vnd.ms-excel"))
     }
 
-    // --- UI ---
     Scaffold(
+        topBar = {
+            CompactTopBar(title = "Меню", onBack = onBack, actions = {})
+        },
         floatingActionButton = {
             FloatingActionButton(onClick = { showCreateDialog = true }) {
                 Icon(Icons.Default.Add, "Создать меню")
@@ -141,7 +116,6 @@ fun MenuTemplatesScreen() {
         }
     ) { pad ->
         Column(Modifier.padding(pad).fillMaxSize()) {
-
             OutlinedButton(
                 onClick = { downloadTemplateLauncher.launch("Шаблон_меню.xlsx") },
                 modifier = Modifier.fillMaxWidth().padding(12.dp),
@@ -149,15 +123,12 @@ fun MenuTemplatesScreen() {
             ) {
                 Icon(Icons.Default.DateRange, null)
                 Spacer(Modifier.width(8.dp))
-                Text("Скачать шаблон Excel для меню")
+                Text("Скачать шаблон Excel")
             }
 
             if (templates.isEmpty()) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text(
-                        "Шаблонов меню пока нет.\nНажмите + чтобы создать.",
-                        style = MaterialTheme.typography.bodyLarge
-                    )
+                    Text("Планов пока нет.\nНажмите + чтобы создать.", style = MaterialTheme.typography.bodyLarge)
                 }
             } else {
                 LazyColumn(
@@ -166,62 +137,24 @@ fun MenuTemplatesScreen() {
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     items(templates, key = { it.id }) { template ->
-                        Card(
-                            Modifier.fillMaxWidth()
-                        ) {
+                        Card(Modifier.fillMaxWidth()) {
                             Row(
                                 Modifier.padding(16.dp),
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Column(
-                                    Modifier
-                                        .weight(1f)
-                                        .clickable { selectedTemplate = template }
-                                ) {
-                                    Text(
-                                        template.name,
-                                        style = MaterialTheme.typography.titleMedium,
-                                        fontWeight = FontWeight.Bold
-                                    )
+                                Column(Modifier.weight(1f).clickable { selectedTemplate = template }) {
+                                    Text(template.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                                     Text(
                                         "Старт: ${formatDisplayDate(template.startDate)} · Цикл: ${template.cycleLength} дн.",
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                 }
-
-                                IconButton(onClick = { importMenuFromExcel(template) }) {
-                                    Icon(
-                                        Icons.Default.FileUpload,
-                                        "Импорт",
-                                        tint = MaterialTheme.colorScheme.secondary
-                                    )
-                                }
-
-                                IconButton(onClick = { exportMenuToExcel(template) }) {
-                                    Icon(
-                                        Icons.Default.FileDownload,
-                                        "Экспорт",
-                                        tint = MaterialTheme.colorScheme.secondary
-                                    )
-                                }
-
-                                IconButton(onClick = { templateToEdit = template }) {
-                                    Icon(
-                                        Icons.Default.Edit,
-                                        "Настройки",
-                                        tint = MaterialTheme.colorScheme.primary
-                                    )
-                                }
-
-                                IconButton(onClick = { templateToDelete = template }) {
-                                    Icon(
-                                        Icons.Default.Delete,
-                                        "Удалить",
-                                        tint = MaterialTheme.colorScheme.error
-                                    )
-                                }
+                                IconButton(onClick = { importMenuFromExcel(template) }) { Icon(Icons.Default.FileUpload, "Импорт", tint = MaterialTheme.colorScheme.secondary) }
+                                IconButton(onClick = { exportMenuToExcel(template) }) { Icon(Icons.Default.FileDownload, "Экспорт", tint = MaterialTheme.colorScheme.secondary) }
+                                IconButton(onClick = { templateToEdit = template }) { Icon(Icons.Default.Edit, "Настройки", tint = MaterialTheme.colorScheme.primary) }
+                                IconButton(onClick = { templateToDelete = template }) { Icon(Icons.Default.Delete, "Удалить", tint = MaterialTheme.colorScheme.error) }
                             }
                         }
                     }
@@ -251,10 +184,8 @@ fun MenuTemplatesScreen() {
             onSave = { updatedTemplate ->
                 scope.launch {
                     db.menuTemplateDao().update(updatedTemplate)
-
                     val currentDays = db.menuDayDao().getDaysForTemplate(updatedTemplate.id).first()
                     val currentCount = currentDays.size
-
                     if (updatedTemplate.cycleLength > currentCount) {
                         for (i in (currentCount + 1)..updatedTemplate.cycleLength) {
                             db.menuDayDao().insert(MenuDay(templateId = updatedTemplate.id, dayNumber = i))
@@ -273,38 +204,26 @@ fun MenuTemplatesScreen() {
     }
 
     if (selectedTemplate != null) {
-        MenuTemplateEditScreen(
-            template = selectedTemplate!!,
-            onDismiss = { selectedTemplate = null }
-        )
+        MenuTemplateEditScreen(template = selectedTemplate!!, onDismiss = { selectedTemplate = null })
     }
 
     if (templateToDelete != null) {
         AlertDialog(
             onDismissRequest = { templateToDelete = null },
-            title = { Text("Удалить шаблон?") },
-            text = { Text("Удалить «${templateToDelete!!.name}»? Это действие нельзя отменить.") },
+            title = { Text("Удалить план?") },
+            text = { Text("Удалить «${templateToDelete!!.name}»?") },
             confirmButton = {
                 TextButton(onClick = {
                     val target = templateToDelete ?: return@TextButton
                     scope.launch {
                         val days = db.menuDayDao().getDaysForTemplate(target.id).first()
-                        days.forEach { day ->
-                            db.menuDayDishDao().deleteForDay(day.id)
-                            db.menuDayDao().delete(day)
-                        }
+                        days.forEach { day -> db.menuDayDishDao().deleteForDay(day.id); db.menuDayDao().delete(day) }
                         db.menuTemplateDao().delete(target)
                         templateToDelete = null
                     }
-                }) {
-                    Text("Удалить", color = MaterialTheme.colorScheme.error)
-                }
+                }) { Text("Удалить", color = MaterialTheme.colorScheme.error) }
             },
-            dismissButton = {
-                TextButton(onClick = { templateToDelete = null }) {
-                    Text("Отмена")
-                }
-            }
+            dismissButton = { TextButton(onClick = { templateToDelete = null }) { Text("Отмена") } }
         )
     }
 }
@@ -323,13 +242,13 @@ fun CreateMenuTemplateDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Новый шаблон меню") },
+        title = { Text("Новый план меню") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it },
-                    label = { Text("Название (напр. Меню на 45 дней)") },
+                    label = { Text("Название (напр. ПП Меню на неделю)") },
                     modifier = Modifier.fillMaxWidth()
                 )
                 OutlinedTextField(
@@ -357,15 +276,9 @@ fun CreateMenuTemplateDialog(
                         onSave(MenuTemplate(name = name.trim(), cycleLength = length, startDate = startDate))
                     }
                 }
-            ) {
-                Text("Создать")
-            }
+            ) { Text("Создать") }
         },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Отмена")
-            }
-        }
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Отмена") } }
     )
 
     if (showDatePicker) {
@@ -391,7 +304,7 @@ fun EditMenuTemplateDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Редактировать шаблон") },
+        title = { Text("Редактировать план") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedTextField(
@@ -414,11 +327,6 @@ fun EditMenuTemplateDialog(
                     Spacer(Modifier.width(8.dp))
                     Text("Дата старта: $startDate", style = MaterialTheme.typography.bodySmall)
                 }
-                Text(
-                    "💡 Внимание: изменение длины цикла может удалить старые дни и блюда в них.",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.error
-                )
             }
         },
         confirmButton = {
@@ -429,15 +337,9 @@ fun EditMenuTemplateDialog(
                         onSave(template.copy(name = name.trim(), cycleLength = length, startDate = startDate))
                     }
                 }
-            ) {
-                Text("Сохранить")
-            }
+            ) { Text("Сохранить") }
         },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Отмена")
-            }
-        }
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Отмена") } }
     )
 
     if (showDatePicker) {
